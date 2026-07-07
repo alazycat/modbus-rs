@@ -297,7 +297,7 @@ impl<T: Transport> Client<T> {
     }
 }
 
-fn pack_bits(bits: &[bool]) -> Vec<u8> {
+pub(crate) fn pack_bits(bits: &[bool]) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(bits.len().div_ceil(8));
     for (i, &bit) in bits.iter().enumerate() {
         if i % 8 == 0 {

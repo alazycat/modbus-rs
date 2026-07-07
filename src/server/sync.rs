@@ -8,6 +8,9 @@ use alloc::vec::Vec;
 use crate::error::{DecodeError, EncodeError};
 use crate::exception::{ExceptionCode, ExceptionResponse};
 use crate::function_codes::diagnostics::{DiagnosticsRequest, DiagnosticsResponse};
+use crate::function_codes::encapsulated_interface_transport::{
+    EncapsulatedInterfaceTransportRequest, EncapsulatedInterfaceTransportResponse,
+};
 use crate::function_codes::get_comm_event_counter::{
     GetCommEventCounterRequest, GetCommEventCounterResponse,
 };
@@ -22,6 +25,7 @@ use crate::function_codes::read_discrete_inputs::{
 use crate::function_codes::read_exception_status::{
     ReadExceptionStatusRequest, ReadExceptionStatusResponse,
 };
+use crate::function_codes::read_file_record::{ReadFileRecordRequest, ReadFileRecordResponse};
 use crate::function_codes::read_fifo_queue::{ReadFifoQueueRequest, ReadFifoQueueResponse};
 use crate::function_codes::read_holding_registers::{
     ReadHoldingRegistersRequest, ReadHoldingRegistersResponse,
@@ -33,6 +37,7 @@ use crate::function_codes::read_write_multiple_registers::{
     ReadWriteMultipleRegistersRequest, ReadWriteMultipleRegistersResponse,
 };
 use crate::function_codes::report_server_id::{ReportServerIdRequest, ReportServerIdResponse};
+use crate::function_codes::write_file_record::{WriteFileRecordRequest, WriteFileRecordResponse};
 use crate::function_codes::write_multiple_coils::{
     WriteMultipleCoilsRequest, WriteMultipleCoilsResponse,
 };
@@ -227,6 +232,23 @@ impl<D: DataStore> Server<D> {
                     register_values,
                 })
             }
+            ReadFileRecordRequest::FUNCTION_CODE => {
+                let req = decode_request::<ReadFileRecordRequest>(request)?;
+                let sub_responses = self.store.read_file_record(&req.sub_requests)?;
+                encode_pdu(ReadFileRecordResponse { sub_responses })
+            }
+            WriteFileRecordRequest::FUNCTION_CODE => {
+                let req = decode_request::<WriteFileRecordRequest>(request)?;
+                let sub_responses = self.store.write_file_record(&req.sub_requests)?;
+                encode_pdu(WriteFileRecordResponse { sub_responses })
+            }
+            EncapsulatedInterfaceTransportRequest::FUNCTION_CODE => {
+                let req = decode_request::<EncapsulatedInterfaceTransportRequest>(request)?;
+                let (mei_type, data) = self
+                    .store
+                    .encapsulated_interface_transport(req.mei_type, &req.data)?;
+                encode_pdu(EncapsulatedInterfaceTransportResponse { mei_type, data })
+            }
             _ => Err(ExceptionCode::IllegalFunction),
         }
     }
@@ -334,6 +356,9 @@ impl_request!(GetCommEventCounterRequest);
 impl_request!(GetCommEventLogRequest);
 impl_request!(ReportServerIdRequest);
 impl_request!(ReadFifoQueueRequest);
+impl_request!(ReadFileRecordRequest);
+impl_request!(WriteFileRecordRequest);
+impl_request!(EncapsulatedInterfaceTransportRequest);
 
 impl_response!(ReadCoilsResponse, 253);
 impl_response!(ReadDiscreteInputsResponse, 253);
@@ -351,6 +376,9 @@ impl_response!(GetCommEventCounterResponse, 5);
 impl_response!(GetCommEventLogResponse, 72);
 impl_response!(ReportServerIdResponse, 257);
 impl_response!(ReadFifoQueueResponse, 3 + 2 + 256); // header + fifo count + max data (2-byte byte count supports up to u16::MAX but response buffer is 512)
+impl_response!(ReadFileRecordResponse, 253);
+impl_response!(WriteFileRecordResponse, 253);
+impl_response!(EncapsulatedInterfaceTransportResponse, 253);
 
 #[cfg(test)]
 mod tests {

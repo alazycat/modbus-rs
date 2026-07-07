@@ -8,6 +8,9 @@ use alloc::vec::Vec;
 use super::{pack_bits, ClientConfig, ClientError};
 use crate::exception::ExceptionResponse;
 use crate::function_codes::diagnostics::{DiagnosticsRequest, DiagnosticsResponse};
+use crate::function_codes::encapsulated_interface_transport::{
+    EncapsulatedInterfaceTransportRequest, EncapsulatedInterfaceTransportResponse,
+};
 use crate::function_codes::get_comm_event_counter::{
     GetCommEventCounterRequest, GetCommEventCounterResponse,
 };
@@ -22,6 +25,10 @@ use crate::function_codes::read_discrete_inputs::{
 use crate::function_codes::read_exception_status::{
     ReadExceptionStatusRequest, ReadExceptionStatusResponse,
 };
+use crate::function_codes::read_file_record::{
+    ReadFileRecordRequest, ReadFileRecordResponse, ReadFileRecordSubRequest,
+    ReadFileRecordSubResponse,
+};
 use crate::function_codes::read_fifo_queue::{ReadFifoQueueRequest, ReadFifoQueueResponse};
 use crate::function_codes::read_holding_registers::{
     ReadHoldingRegistersRequest, ReadHoldingRegistersResponse,
@@ -33,6 +40,10 @@ use crate::function_codes::read_write_multiple_registers::{
     ReadWriteMultipleRegistersRequest, ReadWriteMultipleRegistersResponse,
 };
 use crate::function_codes::report_server_id::{ReportServerIdRequest, ReportServerIdResponse};
+use crate::function_codes::write_file_record::{
+    WriteFileRecordRequest, WriteFileRecordResponse, WriteFileRecordSubRequest,
+    WriteFileRecordSubResponse,
+};
 use crate::function_codes::write_multiple_coils::{
     WriteMultipleCoilsRequest, WriteMultipleCoilsResponse,
 };
@@ -360,6 +371,50 @@ impl<T: Transport> Client<T> {
         let pdu = self.dispatch(slave, &buf[..n])?;
         let resp = ReadFifoQueueResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok((resp.fifo_count, resp.register_values))
+    }
+
+    /// Read file records from `slave` (FC 0x14).
+    pub fn read_file_record(
+        &mut self,
+        slave: u8,
+        sub_requests: &[ReadFileRecordSubRequest],
+    ) -> Result<Vec<ReadFileRecordSubResponse>, ClientError> {
+        let req = ReadFileRecordRequest::new(sub_requests.to_vec());
+        let mut buf = vec![0u8; 2 + sub_requests.len() * 7];
+        let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n])?;
+        let resp = ReadFileRecordResponse::decode(&pdu).map_err(ClientError::Decode)?;
+        Ok(resp.sub_responses)
+    }
+
+    /// Write file records to `slave` (FC 0x15).
+    pub fn write_file_record(
+        &mut self,
+        slave: u8,
+        sub_requests: &[WriteFileRecordSubRequest],
+    ) -> Result<Vec<WriteFileRecordSubResponse>, ClientError> {
+        let byte_count: usize = sub_requests.iter().map(|s| 7 + s.record_data.len()).sum();
+        let req = WriteFileRecordRequest::new(sub_requests.to_vec());
+        let mut buf = vec![0u8; 2 + byte_count];
+        let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n])?;
+        let resp = WriteFileRecordResponse::decode(&pdu).map_err(ClientError::Decode)?;
+        Ok(resp.sub_responses)
+    }
+
+    /// Send an encapsulated interface transport request to `slave` (FC 0x2B).
+    pub fn encapsulated_interface_transport(
+        &mut self,
+        slave: u8,
+        mei_type: u8,
+        data: &[u8],
+    ) -> Result<(u8, Vec<u8>), ClientError> {
+        let req = EncapsulatedInterfaceTransportRequest::new(mei_type, data.to_vec());
+        let mut buf = vec![0u8; 2 + data.len()];
+        let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n])?;
+        let resp = EncapsulatedInterfaceTransportResponse::decode(&pdu).map_err(ClientError::Decode)?;
+        Ok((resp.mei_type, resp.data))
     }
 }
 

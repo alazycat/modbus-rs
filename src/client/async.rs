@@ -7,16 +7,32 @@ use alloc::vec::Vec;
 
 use super::{pack_bits, ClientConfig, ClientError};
 use crate::exception::ExceptionResponse;
+use crate::function_codes::diagnostics::{DiagnosticsRequest, DiagnosticsResponse};
+use crate::function_codes::get_comm_event_counter::{
+    GetCommEventCounterRequest, GetCommEventCounterResponse,
+};
+use crate::function_codes::get_comm_event_log::{GetCommEventLogRequest, GetCommEventLogResponse};
+use crate::function_codes::mask_write_register::{
+    MaskWriteRegisterRequest, MaskWriteRegisterResponse,
+};
 use crate::function_codes::read_coils::{ReadCoilsRequest, ReadCoilsResponse};
 use crate::function_codes::read_discrete_inputs::{
     ReadDiscreteInputsRequest, ReadDiscreteInputsResponse,
 };
+use crate::function_codes::read_exception_status::{
+    ReadExceptionStatusRequest, ReadExceptionStatusResponse,
+};
+use crate::function_codes::read_fifo_queue::{ReadFifoQueueRequest, ReadFifoQueueResponse};
 use crate::function_codes::read_holding_registers::{
     ReadHoldingRegistersRequest, ReadHoldingRegistersResponse,
 };
 use crate::function_codes::read_input_registers::{
     ReadInputRegistersRequest, ReadInputRegistersResponse,
 };
+use crate::function_codes::read_write_multiple_registers::{
+    ReadWriteMultipleRegistersRequest, ReadWriteMultipleRegistersResponse,
+};
+use crate::function_codes::report_server_id::{ReportServerIdRequest, ReportServerIdResponse};
 use crate::function_codes::write_multiple_coils::{
     WriteMultipleCoilsRequest, WriteMultipleCoilsResponse,
 };
@@ -229,6 +245,123 @@ impl<T: AsyncTransport> AsyncClient<T> {
         let pdu = self.dispatch(slave, &buf[..n]).await?;
         let _ = WriteMultipleRegistersResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok(())
+    }
+
+    /// Read the exception status byte from `slave` (FC 0x07).
+    pub async fn read_exception_status(&mut self, slave: u8) -> Result<u8, ClientError> {
+        let req = ReadExceptionStatusRequest;
+        let mut buf = [0u8; 1];
+        let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let resp = ReadExceptionStatusResponse::decode(&pdu).map_err(ClientError::Decode)?;
+        Ok(resp.data)
+    }
+
+    /// Execute a diagnostics sub-function on `slave` (FC 0x08).
+    pub async fn diagnostics(
+        &mut self,
+        slave: u8,
+        sub_function: u16,
+        data: u16,
+    ) -> Result<(u16, u16), ClientError> {
+        let req = DiagnosticsRequest::new(sub_function, data);
+        let mut buf = [0u8; 5];
+        let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let resp = DiagnosticsResponse::decode(&pdu).map_err(ClientError::Decode)?;
+        Ok((resp.sub_function, resp.data))
+    }
+
+    /// Read the communication event counter from `slave` (FC 0x0B).
+    pub async fn get_comm_event_counter(&mut self, slave: u8) -> Result<(u16, u16), ClientError> {
+        let req = GetCommEventCounterRequest;
+        let mut buf = [0u8; 1];
+        let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let resp = GetCommEventCounterResponse::decode(&pdu).map_err(ClientError::Decode)?;
+        Ok((resp.status, resp.event_count))
+    }
+
+    /// Read the communication event log from `slave` (FC 0x0C).
+    pub async fn get_comm_event_log(
+        &mut self,
+        slave: u8,
+    ) -> Result<(u16, u16, u16, Vec<u8>), ClientError> {
+        let req = GetCommEventLogRequest;
+        let mut buf = [0u8; 1];
+        let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let resp = GetCommEventLogResponse::decode(&pdu).map_err(ClientError::Decode)?;
+        Ok((resp.status, resp.event_count, resp.message_count, resp.events))
+    }
+
+    /// Report the server ID from `slave` (FC 0x11).
+    pub async fn report_server_id(&mut self, slave: u8) -> Result<Vec<u8>, ClientError> {
+        let req = ReportServerIdRequest;
+        let mut buf = [0u8; 1];
+        let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let resp = ReportServerIdResponse::decode(&pdu).map_err(ClientError::Decode)?;
+        Ok(resp.data)
+    }
+
+    /// Mask-write a holding register on `slave` (FC 0x16).
+    pub async fn mask_write_register(
+        &mut self,
+        slave: u8,
+        reference_address: u16,
+        and_mask: u16,
+        or_mask: u16,
+    ) -> Result<(u16, u16, u16), ClientError> {
+        let req = MaskWriteRegisterRequest::new(reference_address, and_mask, or_mask);
+        let mut buf = [0u8; 7];
+        let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let resp = MaskWriteRegisterResponse::decode(&pdu).map_err(ClientError::Decode)?;
+        Ok((resp.reference_address, resp.and_mask, resp.or_mask))
+    }
+
+    /// Atomically read and write holding registers on `slave` (FC 0x17).
+    pub async fn read_write_multiple_registers(
+        &mut self,
+        slave: u8,
+        read_address: u16,
+        read_quantity: u16,
+        write_address: u16,
+        write_values: &[u16],
+    ) -> Result<Vec<u8>, ClientError> {
+        let mut write_register_values = Vec::with_capacity(write_values.len() * 2);
+        for &value in write_values {
+            write_register_values.extend_from_slice(&value.to_be_bytes());
+        }
+        let write_quantity = write_values.len() as u16;
+        let req = ReadWriteMultipleRegistersRequest::new(
+            read_address,
+            read_quantity,
+            write_address,
+            write_quantity,
+            write_register_values,
+        )
+        .map_err(ClientError::Decode)?;
+        let mut buf = vec![0u8; 10 + req.write_values.len()];
+        let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let resp = ReadWriteMultipleRegistersResponse::decode(&pdu).map_err(ClientError::Decode)?;
+        Ok(resp.register_values)
+    }
+
+    /// Read the FIFO queue at `fifo_pointer_address` from `slave` (FC 0x18).
+    pub async fn read_fifo_queue(
+        &mut self,
+        slave: u8,
+        fifo_pointer_address: u16,
+    ) -> Result<(u16, Vec<u8>), ClientError> {
+        let req = ReadFifoQueueRequest::new(fifo_pointer_address);
+        let mut buf = [0u8; 3];
+        let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let resp = ReadFifoQueueResponse::decode(&pdu).map_err(ClientError::Decode)?;
+        Ok((resp.fifo_count, resp.register_values))
     }
 }
 

@@ -25,6 +25,12 @@ pub mod transport;
 #[cfg(feature = "sync")]
 pub mod client;
 
+#[cfg(feature = "sync")]
+pub mod server;
+
+#[cfg(feature = "sync")]
+pub use server::{DataStore, MemoryStore, Server};
+
 pub use error::{DecodeError, EncodeError};
 pub use exception::{ExceptionCode, ExceptionResponse};
 pub use function_codes::encapsulated_interface_transport::{

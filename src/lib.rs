@@ -7,6 +7,12 @@ pub mod function;
 pub mod function_codes;
 
 pub use error::{DecodeError, EncodeError};
+pub use function_codes::encapsulated_interface_transport::{
+    EncapsulatedInterfaceTransportRequest, EncapsulatedInterfaceTransportResponse,
+    MEI_TYPE_CANOPEN_GENERAL_REFERENCE, MEI_TYPE_READ_DEVICE_IDENTIFICATION,
+    READ_DEVICE_ID_CODE_BASIC, READ_DEVICE_ID_CODE_EXTENDED,
+    READ_DEVICE_ID_CODE_REGULAR, READ_DEVICE_ID_CODE_SPECIFIC,
+};
 pub use function_codes::write_file_record::{
     WriteFileRecordRequest, WriteFileRecordResponse, WriteFileRecordSubRequest,
     WriteFileRecordSubResponse,

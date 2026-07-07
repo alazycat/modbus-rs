@@ -7,6 +7,9 @@ pub mod function;
 pub mod function_codes;
 
 pub use error::{DecodeError, EncodeError};
+pub use function_codes::read_holding_registers::{
+    ReadHoldingRegistersRequest, ReadHoldingRegistersResponse,
+};
 pub use function_codes::write_multiple_coils::{
     WriteMultipleCoilsRequest, WriteMultipleCoilsResponse,
 };

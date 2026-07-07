@@ -164,6 +164,9 @@ impl<D: DataStore> AsyncServer<D> {
                 }
                 Ok(1) => {
                     frame.push(byte[0]);
+                    if frame.len() > RtuAdu::MAX_FRAME_SIZE {
+                        return Err(AsyncServerError::Disconnected);
+                    }
                     if frame.len() >= RtuAdu::MIN_FRAME_SIZE && RtuAdu::decode(&frame).is_ok() {
                         break;
                     }
@@ -248,6 +251,49 @@ mod tests {
 
         let result = server.serve_one(&mut server_stream, 0x03).await.unwrap();
         assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn serve_one_rejects_oversized_frame() {
+        use std::io;
+        use std::pin::Pin;
+        use std::task::{Context, Poll};
+        use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+
+        struct GarbageStream;
+        impl AsyncRead for GarbageStream {
+            fn poll_read(
+                self: Pin<&mut Self>,
+                _cx: &mut Context<'_>,
+                buf: &mut ReadBuf<'_>,
+            ) -> Poll<io::Result<()>> {
+                buf.put_slice(&[0x00]);
+                Poll::Ready(Ok(()))
+            }
+        }
+        impl AsyncWrite for GarbageStream {
+            fn poll_write(
+                self: Pin<&mut Self>,
+                _cx: &mut Context<'_>,
+                buf: &[u8],
+            ) -> Poll<io::Result<usize>> {
+                Poll::Ready(Ok(buf.len()))
+            }
+            fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+                Poll::Ready(Ok(()))
+            }
+            fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+                Poll::Ready(Ok(()))
+            }
+        }
+
+        let store = MemoryStore::new(0, 0, 0, 0);
+        let mut server = AsyncServer::new(store);
+        let err = server
+            .serve_one(&mut GarbageStream, 0x01)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AsyncServerError::Disconnected));
     }
 
     #[tokio::test]

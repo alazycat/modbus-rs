@@ -19,6 +19,12 @@ pub mod tcp;
 #[cfg(feature = "udp")]
 pub mod udp;
 
+#[cfg(feature = "sync")]
+pub mod transport;
+
+#[cfg(feature = "sync")]
+pub mod client;
+
 pub use error::{DecodeError, EncodeError};
 pub use exception::{ExceptionCode, ExceptionResponse};
 pub use function_codes::encapsulated_interface_transport::{

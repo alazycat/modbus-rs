@@ -1,6 +1,6 @@
 //! RTU ADU framing (slave address + PDU + CRC-16).
 
-#![cfg(feature = "rtu")]
+#![cfg(any(feature = "rtu", feature = "async"))]
 
 use alloc::vec::Vec;
 
@@ -103,7 +103,10 @@ mod tests {
 
     #[test]
     fn broadcast_address_is_valid() {
-        let frame = RtuAdu::new(RtuAdu::BROADCAST_ADDRESS, vec![0x0F, 0x00, 0x10, 0x00, 0x02]);
+        let frame = RtuAdu::new(
+            RtuAdu::BROADCAST_ADDRESS,
+            vec![0x0F, 0x00, 0x10, 0x00, 0x02],
+        );
         assert!(frame.is_broadcast());
 
         let mut buf = [0u8; 8];
@@ -119,19 +122,28 @@ mod tests {
     fn decode_rejects_bad_crc() {
         let mut buf = [0x01, 0x03, 0x00, 0x00, 0x00, 0x0A, 0xCD, 0xC5];
         buf[6] = 0x00;
-        assert!(matches!(RtuAdu::decode(&buf), Err(DecodeError::InvalidValue)));
+        assert!(matches!(
+            RtuAdu::decode(&buf),
+            Err(DecodeError::InvalidValue)
+        ));
     }
 
     #[test]
     fn decode_rejects_truncated_frame() {
         let buf = [0x01, 0x03, 0xCD];
-        assert!(matches!(RtuAdu::decode(&buf), Err(DecodeError::InvalidLength)));
+        assert!(matches!(
+            RtuAdu::decode(&buf),
+            Err(DecodeError::InvalidLength)
+        ));
     }
 
     #[test]
     fn encode_rejects_too_small_buffer() {
         let frame = RtuAdu::new(0x01, vec![0x03, 0x00, 0x00, 0x00, 0x0A]);
         let mut buf = [0u8; 4];
-        assert!(matches!(frame.encode(&mut buf), Err(EncodeError::BufferTooSmall)));
+        assert!(matches!(
+            frame.encode(&mut buf),
+            Err(EncodeError::BufferTooSmall)
+        ));
     }
 }

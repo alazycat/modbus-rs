@@ -1,6 +1,6 @@
 //! Synchronous Modbus server dispatcher.
 
-#![cfg(feature = "sync")]
+#![cfg(any(feature = "sync", feature = "async"))]
 
 use alloc::vec;
 use alloc::vec::Vec;
@@ -29,9 +29,7 @@ use crate::function_codes::write_multiple_coils::{
 use crate::function_codes::write_multiple_registers::{
     WriteMultipleRegistersRequest, WriteMultipleRegistersResponse,
 };
-use crate::function_codes::write_single_coil::{
-    WriteSingleCoilRequest, WriteSingleCoilResponse,
-};
+use crate::function_codes::write_single_coil::{WriteSingleCoilRequest, WriteSingleCoilResponse};
 use crate::function_codes::write_single_register::{
     WriteSingleRegisterRequest, WriteSingleRegisterResponse,
 };
@@ -66,11 +64,7 @@ impl<D: DataStore> Server<D> {
     /// Dispatch a request PDU and write the response PDU into `response`.
     ///
     /// Returns the number of bytes written to `response`.
-    pub fn dispatch(
-        &mut self,
-        request: &[u8],
-        response: &mut [u8],
-    ) -> Result<usize, EncodeError> {
+    pub fn dispatch(&mut self, request: &[u8], response: &mut [u8]) -> Result<usize, EncodeError> {
         if request.is_empty() {
             return encode_exception(0, ExceptionCode::IllegalFunction, response);
         }
@@ -149,8 +143,7 @@ impl<D: DataStore> Server<D> {
             WriteMultipleRegistersRequest::FUNCTION_CODE => {
                 let req = decode_request::<WriteMultipleRegistersRequest>(request)?;
                 let values = bytes_to_registers(&req.register_values);
-                self.store
-                    .write_registers(req.starting_address, &values)?;
+                self.store.write_registers(req.starting_address, &values)?;
                 encode_pdu(WriteMultipleRegistersResponse {
                     starting_address: req.starting_address,
                     quantity: req.quantity,
@@ -158,10 +151,13 @@ impl<D: DataStore> Server<D> {
             }
             MaskWriteRegisterRequest::FUNCTION_CODE => {
                 let req = decode_request::<MaskWriteRegisterRequest>(request)?;
-                let current_bytes = self.store.read_holding_registers(req.reference_address, 1)?;
+                let current_bytes = self
+                    .store
+                    .read_holding_registers(req.reference_address, 1)?;
                 let current = u16::from_be_bytes([current_bytes[0], current_bytes[1]]);
                 let new_value = (current & req.and_mask) | (req.or_mask & !req.and_mask);
-                self.store.write_register(req.reference_address, new_value)?;
+                self.store
+                    .write_register(req.reference_address, new_value)?;
                 encode_pdu(MaskWriteRegisterResponse {
                     reference_address: req.reference_address,
                     and_mask: req.and_mask,

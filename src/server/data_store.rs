@@ -1,7 +1,7 @@
 //! Data store abstraction and an in-memory implementation for the synchronous
 //! Modbus server.
 
-#![cfg(feature = "sync")]
+#![cfg(any(feature = "sync", feature = "async"))]
 
 use alloc::vec;
 use alloc::vec::Vec;
@@ -27,7 +27,8 @@ pub trait DataStore {
     /// Read `quantity` holding registers starting at `address`.
     ///
     /// Each register occupies two big-endian bytes in the returned vector.
-    fn read_holding_registers(&self, address: u16, quantity: u16) -> Result<Vec<u8>, ExceptionCode>;
+    fn read_holding_registers(&self, address: u16, quantity: u16)
+        -> Result<Vec<u8>, ExceptionCode>;
 
     /// Read `quantity` input registers starting at `address`.
     fn read_input_registers(&self, address: u16, quantity: u16) -> Result<Vec<u8>, ExceptionCode>;
@@ -88,7 +89,11 @@ impl DataStore for MemoryStore {
         Ok(pack_bits(&self.discrete_inputs[address as usize..end]))
     }
 
-    fn read_holding_registers(&self, address: u16, quantity: u16) -> Result<Vec<u8>, ExceptionCode> {
+    fn read_holding_registers(
+        &self,
+        address: u16,
+        quantity: u16,
+    ) -> Result<Vec<u8>, ExceptionCode> {
         let end = address as usize + quantity as usize;
         if end > self.holding_registers.len() {
             return Err(ExceptionCode::IllegalDataAddress);

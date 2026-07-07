@@ -1,6 +1,6 @@
-//! Synchronous Modbus client core.
+//! Asynchronous Modbus client core.
 
-#![cfg(feature = "sync")]
+#![cfg(feature = "async")]
 
 use alloc::vec;
 use alloc::vec::Vec;
@@ -28,19 +28,19 @@ use crate::function_codes::write_single_register::{
     WriteSingleRegisterRequest, WriteSingleRegisterResponse,
 };
 use crate::rtu::RtuAdu;
-use crate::transport::{Transport, TransportError};
+use crate::transport::{AsyncTransport, TransportError};
 
-/// A synchronous Modbus client.
+/// An asynchronous Modbus client.
 ///
-/// The client dispatches request PDUs over a [`Transport`], waits for the
+/// The client dispatches request PDUs over an [`AsyncTransport`], waits for the
 /// response, and performs basic response validation. This implementation wraps
 /// PDUs in RTU ADUs.
-pub struct Client<T: Transport> {
+pub struct AsyncClient<T: AsyncTransport> {
     transport: T,
     config: ClientConfig,
 }
 
-impl<T: Transport> Client<T> {
+impl<T: AsyncTransport> AsyncClient<T> {
     /// Create a client with the default configuration.
     pub fn new(transport: T) -> Self {
         Self::with_config(transport, ClientConfig::default())
@@ -56,7 +56,11 @@ impl<T: Transport> Client<T> {
     /// The request PDU must begin with the function code. The returned response
     /// PDU also begins with the function code, unless the server replied with
     /// an exception.
-    pub fn dispatch(&mut self, slave: u8, request_pdu: &[u8]) -> Result<Vec<u8>, ClientError> {
+    pub async fn dispatch(
+        &mut self,
+        slave: u8,
+        request_pdu: &[u8],
+    ) -> Result<Vec<u8>, ClientError> {
         if request_pdu.is_empty() {
             return Err(ClientError::InvalidResponse);
         }
@@ -65,10 +69,10 @@ impl<T: Transport> Client<T> {
         let adu = RtuAdu::new(slave, request_pdu.to_vec());
         let mut tx = [0u8; 512];
         let n = adu.encode(&mut tx).map_err(ClientError::Encode)?;
-        self.transport.send(&tx[..n])?;
+        self.transport.send(&tx[..n]).await?;
 
         let mut rx = [0u8; 512];
-        let m = self.transport.recv(&mut rx, self.config.timeout)?;
+        let m = self.transport.recv(&mut rx, self.config.timeout).await?;
         if m == 0 {
             return Err(ClientError::Transport(TransportError::Disconnected));
         }
@@ -93,7 +97,7 @@ impl<T: Transport> Client<T> {
     }
 
     /// Read `quantity` coils starting at `address` from `slave`.
-    pub fn read_coils(
+    pub async fn read_coils(
         &mut self,
         slave: u8,
         address: u16,
@@ -102,13 +106,13 @@ impl<T: Transport> Client<T> {
         let req = ReadCoilsRequest::new(address, quantity).map_err(ClientError::Decode)?;
         let mut buf = [0u8; 5];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n])?;
+        let pdu = self.dispatch(slave, &buf[..n]).await?;
         let resp = ReadCoilsResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok(resp.coil_status)
     }
 
     /// Read `quantity` discrete inputs starting at `address` from `slave`.
-    pub fn read_discrete_inputs(
+    pub async fn read_discrete_inputs(
         &mut self,
         slave: u8,
         address: u16,
@@ -117,13 +121,13 @@ impl<T: Transport> Client<T> {
         let req = ReadDiscreteInputsRequest::new(address, quantity).map_err(ClientError::Decode)?;
         let mut buf = [0u8; 5];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n])?;
+        let pdu = self.dispatch(slave, &buf[..n]).await?;
         let resp = ReadDiscreteInputsResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok(resp.input_status)
     }
 
     /// Read `quantity` holding registers starting at `address` from `slave`.
-    pub fn read_holding_registers(
+    pub async fn read_holding_registers(
         &mut self,
         slave: u8,
         address: u16,
@@ -133,13 +137,13 @@ impl<T: Transport> Client<T> {
             ReadHoldingRegistersRequest::new(address, quantity).map_err(ClientError::Decode)?;
         let mut buf = [0u8; 5];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n])?;
+        let pdu = self.dispatch(slave, &buf[..n]).await?;
         let resp = ReadHoldingRegistersResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok(resp.register_values)
     }
 
     /// Read `quantity` input registers starting at `address` from `slave`.
-    pub fn read_input_registers(
+    pub async fn read_input_registers(
         &mut self,
         slave: u8,
         address: u16,
@@ -148,13 +152,18 @@ impl<T: Transport> Client<T> {
         let req = ReadInputRegistersRequest::new(address, quantity).map_err(ClientError::Decode)?;
         let mut buf = [0u8; 5];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n])?;
+        let pdu = self.dispatch(slave, &buf[..n]).await?;
         let resp = ReadInputRegistersResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok(resp.register_values)
     }
 
     /// Write a single coil at `address` on `slave`.
-    pub fn write_coil(&mut self, slave: u8, address: u16, value: bool) -> Result<(), ClientError> {
+    pub async fn write_coil(
+        &mut self,
+        slave: u8,
+        address: u16,
+        value: bool,
+    ) -> Result<(), ClientError> {
         let raw = if value {
             WriteSingleCoilRequest::ON
         } else {
@@ -163,13 +172,13 @@ impl<T: Transport> Client<T> {
         let req = WriteSingleCoilRequest::new(address, raw).map_err(ClientError::Decode)?;
         let mut buf = [0u8; 5];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n])?;
+        let pdu = self.dispatch(slave, &buf[..n]).await?;
         let _ = WriteSingleCoilResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok(())
     }
 
     /// Write a single holding register at `address` on `slave`.
-    pub fn write_register(
+    pub async fn write_register(
         &mut self,
         slave: u8,
         address: u16,
@@ -178,13 +187,13 @@ impl<T: Transport> Client<T> {
         let req = WriteSingleRegisterRequest::new(address, value);
         let mut buf = [0u8; 5];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n])?;
+        let pdu = self.dispatch(slave, &buf[..n]).await?;
         let _ = WriteSingleRegisterResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok(())
     }
 
     /// Write multiple coils starting at `address` on `slave`.
-    pub fn write_coils(
+    pub async fn write_coils(
         &mut self,
         slave: u8,
         address: u16,
@@ -196,13 +205,13 @@ impl<T: Transport> Client<T> {
             .map_err(ClientError::Decode)?;
         let mut buf = vec![0u8; 6 + req.outputs.len()];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n])?;
+        let pdu = self.dispatch(slave, &buf[..n]).await?;
         let _ = WriteMultipleCoilsResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok(())
     }
 
     /// Write multiple holding registers starting at `address` on `slave`.
-    pub fn write_registers(
+    pub async fn write_registers(
         &mut self,
         slave: u8,
         address: u16,
@@ -217,7 +226,7 @@ impl<T: Transport> Client<T> {
             .map_err(ClientError::Decode)?;
         let mut buf = vec![0u8; 6 + req.register_values.len()];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n])?;
+        let pdu = self.dispatch(slave, &buf[..n]).await?;
         let _ = WriteMultipleRegistersResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok(())
     }
@@ -245,13 +254,17 @@ mod tests {
         }
     }
 
-    impl Transport for MockTransport {
-        fn send(&mut self, data: &[u8]) -> Result<(), TransportError> {
+    impl AsyncTransport for MockTransport {
+        async fn send(&mut self, data: &[u8]) -> Result<(), TransportError> {
             self.sent.push(data.to_vec());
             Ok(())
         }
 
-        fn recv(&mut self, buf: &mut [u8], _timeout: Duration) -> Result<usize, TransportError> {
+        async fn recv(
+            &mut self,
+            buf: &mut [u8],
+            _timeout: Duration,
+        ) -> Result<usize, TransportError> {
             let resp = self
                 .responses
                 .pop_front()
@@ -262,8 +275,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn dispatch_read_coils_roundtrip() {
+    #[tokio::test]
+    async fn dispatch_read_coils_roundtrip() {
         let request_pdu = {
             let req = ReadCoilsRequest::new(0x0000, 10).unwrap();
             let mut buf = [0u8; 5];
@@ -285,16 +298,16 @@ mod tests {
             buf[..n].to_vec()
         };
 
-        let mut client = Client::new(MockTransport::new(vec![response_adu]));
-        let pdu = client.dispatch(0x01, &request_pdu).unwrap();
+        let mut client = AsyncClient::new(MockTransport::new(vec![response_adu]));
+        let pdu = client.dispatch(0x01, &request_pdu).await.unwrap();
         assert_eq!(pdu, response_pdu);
 
         let decoded = ReadCoilsResponse::decode(&pdu).unwrap();
         assert_eq!(decoded.coil_status, vec![0b11001011, 0b00000010]);
     }
 
-    #[test]
-    fn dispatch_returns_exception() {
+    #[tokio::test]
+    async fn dispatch_returns_exception() {
         let request_pdu = {
             let req = ReadCoilsRequest::new(0x0000, 10).unwrap();
             let mut buf = [0u8; 5];
@@ -315,19 +328,19 @@ mod tests {
             buf[..n].to_vec()
         };
 
-        let mut client = Client::new(MockTransport::new(vec![response_adu]));
-        let err = client.dispatch(0x01, &request_pdu).unwrap_err();
+        let mut client = AsyncClient::new(MockTransport::new(vec![response_adu]));
+        let err = client.dispatch(0x01, &request_pdu).await.unwrap_err();
         assert!(matches!(err, ClientError::Exception(_)));
     }
 
-    #[test]
-    fn dispatch_propagates_timeout() {
+    #[tokio::test]
+    async fn dispatch_propagates_timeout() {
         struct TimeoutTransport;
-        impl Transport for TimeoutTransport {
-            fn send(&mut self, _data: &[u8]) -> Result<(), TransportError> {
+        impl AsyncTransport for TimeoutTransport {
+            async fn send(&mut self, _data: &[u8]) -> Result<(), TransportError> {
                 Ok(())
             }
-            fn recv(
+            async fn recv(
                 &mut self,
                 _buf: &mut [u8],
                 _timeout: Duration,
@@ -336,15 +349,16 @@ mod tests {
             }
         }
 
-        let mut client = Client::new(TimeoutTransport);
+        let mut client = AsyncClient::new(TimeoutTransport);
         let err = client
             .dispatch(0x01, &[0x01, 0x00, 0x00, 0x00, 0x0A])
+            .await
             .unwrap_err();
         assert!(matches!(err, ClientError::Timeout));
     }
 
-    #[test]
-    fn dispatch_rejects_wrong_slave() {
+    #[tokio::test]
+    async fn dispatch_rejects_wrong_slave() {
         let response_adu = {
             let pdu = {
                 let resp = ReadCoilsResponse {
@@ -360,9 +374,10 @@ mod tests {
             buf[..n].to_vec()
         };
 
-        let mut client = Client::new(MockTransport::new(vec![response_adu]));
+        let mut client = AsyncClient::new(MockTransport::new(vec![response_adu]));
         let err = client
             .dispatch(0x01, &[0x01, 0x00, 0x00, 0x00, 0x01])
+            .await
             .unwrap_err();
         assert!(matches!(err, ClientError::InvalidResponse));
     }

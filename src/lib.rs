@@ -7,6 +7,9 @@ pub mod exception;
 pub mod function;
 pub mod function_codes;
 
+#[cfg(feature = "rtu")]
+pub mod rtu;
+
 pub use error::{DecodeError, EncodeError};
 pub use exception::{ExceptionCode, ExceptionResponse};
 pub use function_codes::encapsulated_interface_transport::{

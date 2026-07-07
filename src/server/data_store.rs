@@ -400,6 +400,25 @@ impl MemoryStore {
     }
 }
 
+impl MemoryStore {
+    /// Write multiple input register values starting at `address`.
+    ///
+    /// This is a test helper; input registers are read-only in normal Modbus
+    /// operation but need to be pre-populated for integration tests.
+    pub fn write_input_registers(
+        &mut self,
+        address: u16,
+        values: &[u16],
+    ) -> Result<(), ExceptionCode> {
+        let end = address as usize + values.len();
+        if end > self.input_registers.len() {
+            return Err(ExceptionCode::IllegalDataAddress);
+        }
+        self.input_registers[address as usize..end].copy_from_slice(values);
+        Ok(())
+    }
+}
+
 fn pack_bits(bits: &[bool]) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(bits.len().div_ceil(8));
     for (i, &bit) in bits.iter().enumerate() {

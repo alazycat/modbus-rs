@@ -13,5 +13,6 @@ pub mod read_write_multiple_registers;
 pub mod report_server_id;
 pub mod write_multiple_coils;
 pub mod write_multiple_registers;
+pub mod write_file_record;
 pub mod write_single_coil;
 pub mod write_single_register;

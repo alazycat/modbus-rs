@@ -29,8 +29,14 @@ pub use crate::ascii_client::AsciiClient;
 #[cfg(all(feature = "ascii", feature = "async"))]
 pub use crate::ascii_client::AsyncAsciiClient;
 
-#[cfg(feature = "udp")]
-pub use crate::udp_client::{UdpClient, UdpClientConfig, UdpClientError};
+#[cfg(all(feature = "udp", any(feature = "sync", feature = "async")))]
+pub use crate::udp_client::{UdpClientConfig, UdpClientError};
+
+#[cfg(all(feature = "udp", feature = "sync"))]
+pub use crate::udp_client::UdpClient;
+
+#[cfg(all(feature = "udp", feature = "async"))]
+pub use crate::udp_client::AsyncUdpClient;
 
 /// Configuration shared between synchronous and asynchronous clients.
 #[derive(Debug, Clone, Copy)]

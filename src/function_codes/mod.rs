@@ -1,6 +1,7 @@
 pub mod mask_write_register;
 pub mod read_coils;
 pub mod read_discrete_inputs;
+pub mod read_fifo_queue;
 pub mod read_holding_registers;
 pub mod read_input_registers;
 pub mod read_write_multiple_registers;

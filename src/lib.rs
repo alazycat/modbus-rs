@@ -49,6 +49,9 @@ pub mod udp_transport;
 #[cfg(all(feature = "udp", feature = "sync"))]
 pub mod udp_client;
 
+#[cfg(all(feature = "udp", feature = "sync"))]
+pub mod udp_server;
+
 #[cfg(feature = "sync")]
 pub mod transport;
 

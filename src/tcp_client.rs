@@ -35,6 +35,7 @@ use crate::function_codes::write_single_coil::{
 use crate::function_codes::write_single_register::{
     WriteSingleRegisterRequest, WriteSingleRegisterResponse,
 };
+use crate::client::pack_bits;
 use crate::tcp::TcpAdu;
 use crate::transport::{Transport, TransportError};
 
@@ -306,20 +307,6 @@ impl<T: Transport> TcpClient<T> {
         let _ = WriteMultipleRegistersResponse::decode(&pdu).map_err(TcpClientError::Decode)?;
         Ok(())
     }
-}
-
-fn pack_bits(bits: &[bool]) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(bits.len().div_ceil(8));
-    for (i, &bit) in bits.iter().enumerate() {
-        if i % 8 == 0 {
-            bytes.push(0);
-        }
-        if bit {
-            let last = bytes.last_mut().expect("byte was just pushed");
-            *last |= 1 << (i % 8);
-        }
-    }
-    bytes
 }
 
 #[cfg(test)]

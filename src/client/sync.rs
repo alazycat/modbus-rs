@@ -2,11 +2,34 @@
 
 #![cfg(feature = "sync")]
 
+use alloc::vec;
 use alloc::vec::Vec;
 use core::time::Duration;
 
 use crate::error::{DecodeError, EncodeError};
 use crate::exception::ExceptionResponse;
+use crate::function_codes::read_coils::{ReadCoilsRequest, ReadCoilsResponse};
+use crate::function_codes::read_discrete_inputs::{
+    ReadDiscreteInputsRequest, ReadDiscreteInputsResponse,
+};
+use crate::function_codes::read_holding_registers::{
+    ReadHoldingRegistersRequest, ReadHoldingRegistersResponse,
+};
+use crate::function_codes::read_input_registers::{
+    ReadInputRegistersRequest, ReadInputRegistersResponse,
+};
+use crate::function_codes::write_multiple_coils::{
+    WriteMultipleCoilsRequest, WriteMultipleCoilsResponse,
+};
+use crate::function_codes::write_multiple_registers::{
+    WriteMultipleRegistersRequest, WriteMultipleRegistersResponse,
+};
+use crate::function_codes::write_single_coil::{
+    WriteSingleCoilRequest, WriteSingleCoilResponse,
+};
+use crate::function_codes::write_single_register::{
+    WriteSingleRegisterRequest, WriteSingleRegisterResponse,
+};
 use crate::rtu::RtuAdu;
 use crate::transport::{Transport, TransportError};
 
@@ -138,6 +161,154 @@ impl<T: Transport> Client<T> {
 
         Ok(response.pdu)
     }
+
+    /// Read `quantity` coils starting at `address` from `slave`.
+    pub fn read_coils(
+        &mut self,
+        slave: u8,
+        address: u16,
+        quantity: u16,
+    ) -> Result<Vec<u8>, ClientError> {
+        let req = ReadCoilsRequest::new(address, quantity).map_err(ClientError::Decode)?;
+        let mut buf = [0u8; 5];
+        let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n])?;
+        let resp = ReadCoilsResponse::decode(&pdu).map_err(ClientError::Decode)?;
+        Ok(resp.coil_status)
+    }
+
+    /// Read `quantity` discrete inputs starting at `address` from `slave`.
+    pub fn read_discrete_inputs(
+        &mut self,
+        slave: u8,
+        address: u16,
+        quantity: u16,
+    ) -> Result<Vec<u8>, ClientError> {
+        let req = ReadDiscreteInputsRequest::new(address, quantity).map_err(ClientError::Decode)?;
+        let mut buf = [0u8; 5];
+        let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n])?;
+        let resp = ReadDiscreteInputsResponse::decode(&pdu).map_err(ClientError::Decode)?;
+        Ok(resp.input_status)
+    }
+
+    /// Read `quantity` holding registers starting at `address` from `slave`.
+    pub fn read_holding_registers(
+        &mut self,
+        slave: u8,
+        address: u16,
+        quantity: u16,
+    ) -> Result<Vec<u8>, ClientError> {
+        let req = ReadHoldingRegistersRequest::new(address, quantity).map_err(ClientError::Decode)?;
+        let mut buf = [0u8; 5];
+        let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n])?;
+        let resp = ReadHoldingRegistersResponse::decode(&pdu).map_err(ClientError::Decode)?;
+        Ok(resp.register_values)
+    }
+
+    /// Read `quantity` input registers starting at `address` from `slave`.
+    pub fn read_input_registers(
+        &mut self,
+        slave: u8,
+        address: u16,
+        quantity: u16,
+    ) -> Result<Vec<u8>, ClientError> {
+        let req = ReadInputRegistersRequest::new(address, quantity).map_err(ClientError::Decode)?;
+        let mut buf = [0u8; 5];
+        let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n])?;
+        let resp = ReadInputRegistersResponse::decode(&pdu).map_err(ClientError::Decode)?;
+        Ok(resp.register_values)
+    }
+
+    /// Write a single coil at `address` on `slave`.
+    pub fn write_coil(
+        &mut self,
+        slave: u8,
+        address: u16,
+        value: bool,
+    ) -> Result<(), ClientError> {
+        let raw = if value {
+            WriteSingleCoilRequest::ON
+        } else {
+            WriteSingleCoilRequest::OFF
+        };
+        let req = WriteSingleCoilRequest::new(address, raw).map_err(ClientError::Decode)?;
+        let mut buf = [0u8; 5];
+        let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n])?;
+        let _ = WriteSingleCoilResponse::decode(&pdu).map_err(ClientError::Decode)?;
+        Ok(())
+    }
+
+    /// Write a single holding register at `address` on `slave`.
+    pub fn write_register(
+        &mut self,
+        slave: u8,
+        address: u16,
+        value: u16,
+    ) -> Result<(), ClientError> {
+        let req = WriteSingleRegisterRequest::new(address, value);
+        let mut buf = [0u8; 5];
+        let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n])?;
+        let _ = WriteSingleRegisterResponse::decode(&pdu).map_err(ClientError::Decode)?;
+        Ok(())
+    }
+
+    /// Write multiple coils starting at `address` on `slave`.
+    pub fn write_coils(
+        &mut self,
+        slave: u8,
+        address: u16,
+        values: &[bool],
+    ) -> Result<(), ClientError> {
+        let outputs = pack_bits(values);
+        let quantity = values.len() as u16;
+        let req = WriteMultipleCoilsRequest::new(address, quantity, outputs)
+            .map_err(ClientError::Decode)?;
+        let mut buf = vec![0u8; 6 + req.outputs.len()];
+        let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n])?;
+        let _ = WriteMultipleCoilsResponse::decode(&pdu).map_err(ClientError::Decode)?;
+        Ok(())
+    }
+
+    /// Write multiple holding registers starting at `address` on `slave`.
+    pub fn write_registers(
+        &mut self,
+        slave: u8,
+        address: u16,
+        values: &[u16],
+    ) -> Result<(), ClientError> {
+        let mut register_values = Vec::with_capacity(values.len() * 2);
+        for &value in values {
+            register_values.extend_from_slice(&value.to_be_bytes());
+        }
+        let quantity = values.len() as u16;
+        let req = WriteMultipleRegistersRequest::new(address, quantity, register_values)
+            .map_err(ClientError::Decode)?;
+        let mut buf = vec![0u8; 6 + req.register_values.len()];
+        let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n])?;
+        let _ = WriteMultipleRegistersResponse::decode(&pdu).map_err(ClientError::Decode)?;
+        Ok(())
+    }
+}
+
+fn pack_bits(bits: &[bool]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(bits.len().div_ceil(8));
+    for (i, &bit) in bits.iter().enumerate() {
+        if i % 8 == 0 {
+            bytes.push(0);
+        }
+        if bit {
+            let last = bytes.last_mut().expect("byte was just pushed");
+            *last |= 1 << (i % 8);
+        }
+    }
+    bytes
 }
 
 #[cfg(test)]

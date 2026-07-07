@@ -1,4 +1,5 @@
 pub mod diagnostics;
+pub mod encapsulated_interface_transport;
 pub mod get_comm_event_counter;
 pub mod get_comm_event_log;
 pub mod mask_write_register;

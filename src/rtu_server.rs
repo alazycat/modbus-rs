@@ -148,6 +148,9 @@ impl<D: DataStore> RtuServer<D> {
                 }
                 Ok(1) => {
                     frame.push(byte[0]);
+                    if frame.len() > RtuAdu::MAX_FRAME_SIZE {
+                        return Err(RtuServerError::Disconnected);
+                    }
                     if frame.len() >= RtuAdu::MIN_FRAME_SIZE
                         && RtuAdu::decode(&frame).is_ok()
                     {
@@ -259,6 +262,33 @@ mod tests {
         let result = server.serve_one(&mut stream, 0x03).unwrap();
         assert!(result.is_none());
         assert!(stream.write_buf.is_empty());
+    }
+
+    #[test]
+    fn serve_one_rejects_oversized_frame() {
+        struct GarbageStream;
+        impl Read for GarbageStream {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                if buf.is_empty() {
+                    return Ok(0);
+                }
+                buf[0] = 0x00;
+                Ok(1)
+            }
+        }
+        impl Write for GarbageStream {
+            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let store = MemoryStore::new(0, 0, 0, 0);
+        let mut server = RtuServer::new(store);
+        let err = server.serve_one(&mut GarbageStream, 0x01).unwrap_err();
+        assert!(matches!(err, RtuServerError::Disconnected));
     }
 
     #[test]

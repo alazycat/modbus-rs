@@ -7,6 +7,11 @@ use alloc::vec::Vec;
 
 use crate::error::{DecodeError, EncodeError};
 use crate::exception::{ExceptionCode, ExceptionResponse};
+use crate::function_codes::diagnostics::{DiagnosticsRequest, DiagnosticsResponse};
+use crate::function_codes::get_comm_event_counter::{
+    GetCommEventCounterRequest, GetCommEventCounterResponse,
+};
+use crate::function_codes::get_comm_event_log::{GetCommEventLogRequest, GetCommEventLogResponse};
 use crate::function_codes::mask_write_register::{
     MaskWriteRegisterRequest, MaskWriteRegisterResponse,
 };
@@ -14,6 +19,10 @@ use crate::function_codes::read_coils::{ReadCoilsRequest, ReadCoilsResponse};
 use crate::function_codes::read_discrete_inputs::{
     ReadDiscreteInputsRequest, ReadDiscreteInputsResponse,
 };
+use crate::function_codes::read_exception_status::{
+    ReadExceptionStatusRequest, ReadExceptionStatusResponse,
+};
+use crate::function_codes::read_fifo_queue::{ReadFifoQueueRequest, ReadFifoQueueResponse};
 use crate::function_codes::read_holding_registers::{
     ReadHoldingRegistersRequest, ReadHoldingRegistersResponse,
 };
@@ -23,6 +32,7 @@ use crate::function_codes::read_input_registers::{
 use crate::function_codes::read_write_multiple_registers::{
     ReadWriteMultipleRegistersRequest, ReadWriteMultipleRegistersResponse,
 };
+use crate::function_codes::report_server_id::{ReportServerIdRequest, ReportServerIdResponse};
 use crate::function_codes::write_multiple_coils::{
     WriteMultipleCoilsRequest, WriteMultipleCoilsResponse,
 };
@@ -174,6 +184,49 @@ impl<D: DataStore> Server<D> {
                     .read_holding_registers(req.read_starting_address, req.read_quantity)?;
                 encode_pdu(ReadWriteMultipleRegistersResponse { register_values })
             }
+            ReadExceptionStatusRequest::FUNCTION_CODE => {
+                let _req = decode_request::<ReadExceptionStatusRequest>(request)?;
+                let data = self.store.read_exception_status()?;
+                encode_pdu(ReadExceptionStatusResponse { data })
+            }
+            DiagnosticsRequest::FUNCTION_CODE => {
+                let req = decode_request::<DiagnosticsRequest>(request)?;
+                let (sub_function, data) = self.store.diagnostics(req.sub_function, req.data)?;
+                encode_pdu(DiagnosticsResponse {
+                    sub_function,
+                    data,
+                })
+            }
+            GetCommEventCounterRequest::FUNCTION_CODE => {
+                let _req = decode_request::<GetCommEventCounterRequest>(request)?;
+                let (status, event_count) = self.store.get_comm_event_counter()?;
+                encode_pdu(GetCommEventCounterResponse {
+                    status,
+                    event_count,
+                })
+            }
+            GetCommEventLogRequest::FUNCTION_CODE => {
+                let _req = decode_request::<GetCommEventLogRequest>(request)?;
+                let (status, event_count, message_count, events) =
+                    self.store.get_comm_event_log()?;
+                encode_pdu(
+                    GetCommEventLogResponse::new(status, event_count, message_count, events)
+                        .map_err(|_| ExceptionCode::ServerDeviceFailure)?,
+                )
+            }
+            ReportServerIdRequest::FUNCTION_CODE => {
+                let _req = decode_request::<ReportServerIdRequest>(request)?;
+                let data = self.store.report_server_id()?;
+                encode_pdu(ReportServerIdResponse::new(data))
+            }
+            ReadFifoQueueRequest::FUNCTION_CODE => {
+                let req = decode_request::<ReadFifoQueueRequest>(request)?;
+                let (fifo_count, register_values) = self.store.read_fifo_queue(req.fifo_pointer_address)?;
+                encode_pdu(ReadFifoQueueResponse {
+                    fifo_count,
+                    register_values,
+                })
+            }
             _ => Err(ExceptionCode::IllegalFunction),
         }
     }
@@ -275,6 +328,12 @@ impl_request!(WriteMultipleCoilsRequest);
 impl_request!(WriteMultipleRegistersRequest);
 impl_request!(MaskWriteRegisterRequest);
 impl_request!(ReadWriteMultipleRegistersRequest);
+impl_request!(ReadExceptionStatusRequest);
+impl_request!(DiagnosticsRequest);
+impl_request!(GetCommEventCounterRequest);
+impl_request!(GetCommEventLogRequest);
+impl_request!(ReportServerIdRequest);
+impl_request!(ReadFifoQueueRequest);
 
 impl_response!(ReadCoilsResponse, 253);
 impl_response!(ReadDiscreteInputsResponse, 253);
@@ -286,6 +345,12 @@ impl_response!(WriteMultipleCoilsResponse, 5);
 impl_response!(WriteMultipleRegistersResponse, 5);
 impl_response!(MaskWriteRegisterResponse, 7);
 impl_response!(ReadWriteMultipleRegistersResponse, 253);
+impl_response!(ReadExceptionStatusResponse, 2);
+impl_response!(DiagnosticsResponse, 5);
+impl_response!(GetCommEventCounterResponse, 5);
+impl_response!(GetCommEventLogResponse, 72);
+impl_response!(ReportServerIdResponse, 257);
+impl_response!(ReadFifoQueueResponse, 3 + 2 + 256); // header + fifo count + max data (2-byte byte count supports up to u16::MAX but response buffer is 512)
 
 #[cfg(test)]
 mod tests {

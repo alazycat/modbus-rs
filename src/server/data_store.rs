@@ -14,6 +14,10 @@ use crate::exception::ExceptionCode;
 /// discrete inputs, holding registers, and input registers. All operations
 /// return [`ExceptionCode::IllegalDataAddress`] when the requested address
 /// range is out of bounds.
+///
+/// Advanced/diagnostic function codes (07/08/0B/0C/11/18) have default
+/// implementations that return [`ExceptionCode::IllegalFunction`] so that
+/// existing stores continue to compile; override the methods to support them.
 pub trait DataStore {
     /// Read `quantity` coil values starting at `address`.
     ///
@@ -44,6 +48,39 @@ pub trait DataStore {
 
     /// Write multiple holding register values starting at `address`.
     fn write_registers(&mut self, address: u16, values: &[u16]) -> Result<(), ExceptionCode>;
+
+    /// Return the exception status byte for FC 0x07 Read Exception Status.
+    fn read_exception_status(&self) -> Result<u8, ExceptionCode> {
+        Err(ExceptionCode::IllegalFunction)
+    }
+
+    /// Handle FC 0x08 Diagnostics and return the echoed `(sub_function, data)`.
+    fn diagnostics(&mut self, sub_function: u16, data: u16) -> Result<(u16, u16), ExceptionCode> {
+        let _ = sub_function;
+        let _ = data;
+        Err(ExceptionCode::IllegalFunction)
+    }
+
+    /// Return `(status, event_count)` for FC 0x0B Get Comm Event Counter.
+    fn get_comm_event_counter(&self) -> Result<(u16, u16), ExceptionCode> {
+        Err(ExceptionCode::IllegalFunction)
+    }
+
+    /// Return `(status, event_count, message_count, events)` for FC 0x0C
+    /// Get Comm Event Log.
+    fn get_comm_event_log(&self) -> Result<(u16, u16, u16, Vec<u8>), ExceptionCode> {
+        Err(ExceptionCode::IllegalFunction)
+    }
+
+    /// Return server identification data for FC 0x11 Report Server ID.
+    fn report_server_id(&self) -> Result<Vec<u8>, ExceptionCode> {
+        Err(ExceptionCode::IllegalFunction)
+    }
+
+    /// Return `(fifo_count, register_values)` for FC 0x18 Read FIFO Queue.
+    fn read_fifo_queue(&self, _fifo_pointer_address: u16) -> Result<(u16, Vec<u8>), ExceptionCode> {
+        Err(ExceptionCode::IllegalFunction)
+    }
 }
 
 /// A simple in-memory [`DataStore`].
@@ -53,6 +90,11 @@ pub struct MemoryStore {
     discrete_inputs: Vec<bool>,
     holding_registers: Vec<u16>,
     input_registers: Vec<u16>,
+    exception_status: u8,
+    comm_event_counter: (u16, u16),
+    comm_event_log: (u16, u16, u16, Vec<u8>),
+    server_id: Vec<u8>,
+    fifo_queue: (u16, Vec<u8>),
 }
 
 impl MemoryStore {
@@ -68,6 +110,11 @@ impl MemoryStore {
             discrete_inputs: vec![false; num_discrete_inputs as usize],
             holding_registers: vec![0; num_holding_registers as usize],
             input_registers: vec![0; num_input_registers as usize],
+            exception_status: 0,
+            comm_event_counter: (0, 0),
+            comm_event_log: (0, 0, 0, vec![]),
+            server_id: vec![],
+            fifo_queue: (0, vec![]),
         }
     }
 }
@@ -152,6 +199,32 @@ impl DataStore for MemoryStore {
         self.holding_registers[address as usize..end].copy_from_slice(values);
         Ok(())
     }
+
+    fn read_exception_status(&self) -> Result<u8, ExceptionCode> {
+        Ok(self.exception_status)
+    }
+
+    fn diagnostics(&mut self, sub_function: u16, data: u16) -> Result<(u16, u16), ExceptionCode> {
+        Ok((sub_function, data))
+    }
+
+    fn get_comm_event_counter(&self) -> Result<(u16, u16), ExceptionCode> {
+        Ok(self.comm_event_counter)
+    }
+
+    fn get_comm_event_log(&self) -> Result<(u16, u16, u16, Vec<u8>), ExceptionCode> {
+        let (status, event_count, message_count, events) = &self.comm_event_log;
+        Ok((*status, *event_count, *message_count, events.clone()))
+    }
+
+    fn report_server_id(&self) -> Result<Vec<u8>, ExceptionCode> {
+        Ok(self.server_id.clone())
+    }
+
+    fn read_fifo_queue(&self, _fifo_pointer_address: u16) -> Result<(u16, Vec<u8>), ExceptionCode> {
+        let (count, values) = &self.fifo_queue;
+        Ok((*count, values.clone()))
+    }
 }
 
 impl MemoryStore {
@@ -170,6 +243,37 @@ impl MemoryStore {
         }
         self.input_registers[address as usize..end].copy_from_slice(values);
         Ok(())
+    }
+
+    /// Set the value returned by FC 0x07 Read Exception Status.
+    pub fn set_exception_status(&mut self, status: u8) {
+        self.exception_status = status;
+    }
+
+    /// Set the values returned by FC 0x0B Get Comm Event Counter.
+    pub fn set_comm_event_counter(&mut self, status: u16, event_count: u16) {
+        self.comm_event_counter = (status, event_count);
+    }
+
+    /// Set the values returned by FC 0x0C Get Comm Event Log.
+    pub fn set_comm_event_log(
+        &mut self,
+        status: u16,
+        event_count: u16,
+        message_count: u16,
+        events: Vec<u8>,
+    ) {
+        self.comm_event_log = (status, event_count, message_count, events);
+    }
+
+    /// Set the data returned by FC 0x11 Report Server ID.
+    pub fn set_server_id(&mut self, data: Vec<u8>) {
+        self.server_id = data;
+    }
+
+    /// Set the data returned by FC 0x18 Read FIFO Queue.
+    pub fn set_fifo_queue(&mut self, fifo_count: u16, register_values: Vec<u8>) {
+        self.fifo_queue = (fifo_count, register_values);
     }
 }
 

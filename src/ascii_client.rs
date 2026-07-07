@@ -1,10 +1,11 @@
-//! Synchronous ASCII Modbus client.
+//! Synchronous and asynchronous ASCII Modbus clients.
 //!
-//! This module is available when both the `ascii` and `sync` features are
-//! enabled. It wraps request PDUs in the ASCII ADU format, validates responses,
-//! and exposes high-level methods for reading and writing coils and registers.
+//! This module is available when the `ascii` feature and at least one of the
+//! `sync` or `async` runtime features are enabled. It wraps request PDUs in the
+//! ASCII ADU format, validates responses, and exposes high-level methods for
+//! reading and writing coils and registers.
 
-#![cfg(all(feature = "ascii", feature = "sync"))]
+#![cfg(all(feature = "ascii", any(feature = "sync", feature = "async")))]
 
 use alloc::vec;
 use alloc::vec::Vec;
@@ -34,7 +35,13 @@ use crate::function_codes::write_single_coil::{WriteSingleCoilRequest, WriteSing
 use crate::function_codes::write_single_register::{
     WriteSingleRegisterRequest, WriteSingleRegisterResponse,
 };
-use crate::transport::{Transport, TransportError};
+use crate::transport::TransportError;
+
+#[cfg(feature = "async")]
+use crate::transport::AsyncTransport;
+
+#[cfg(feature = "sync")]
+use crate::transport::Transport;
 
 /// Configuration for a synchronous ASCII client.
 #[derive(Debug, Clone, Copy)]
@@ -100,12 +107,14 @@ impl From<TransportError> for AsciiClientError {
 }
 
 /// A synchronous ASCII Modbus client.
+#[cfg(feature = "sync")]
 #[derive(Debug)]
 pub struct AsciiClient<T: Transport> {
     transport: T,
     config: AsciiClientConfig,
 }
 
+#[cfg(feature = "sync")]
 impl<T: Transport> AsciiClient<T> {
     /// Create a client with the default configuration.
     pub fn new(transport: T) -> Self {
@@ -292,7 +301,7 @@ impl<T: Transport> AsciiClient<T> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sync"))]
 mod tests {
     use super::*;
     use crate::ascii::AsciiAdu;
@@ -438,6 +447,372 @@ mod tests {
         }
 
         fn recv(&mut self, buf: &mut [u8], _timeout: Duration) -> Result<usize, TransportError> {
+            let resp = self
+                .responses
+                .pop_front()
+                .ok_or(TransportError::Disconnected)?;
+            let n = resp.len().min(buf.len());
+            buf[..n].copy_from_slice(&resp[..n]);
+            Ok(n)
+        }
+    }
+}
+
+/// An asynchronous ASCII Modbus client.
+#[cfg(feature = "async")]
+#[derive(Debug)]
+pub struct AsyncAsciiClient<T: AsyncTransport> {
+    transport: T,
+    config: AsciiClientConfig,
+}
+
+#[cfg(feature = "async")]
+impl<T: AsyncTransport> AsyncAsciiClient<T> {
+    /// Create a client with the default configuration.
+    pub fn new(transport: T) -> Self {
+        Self::with_config(transport, AsciiClientConfig::default())
+    }
+
+    /// Create a client with a custom configuration.
+    pub fn with_config(transport: T, config: AsciiClientConfig) -> Self {
+        Self { transport, config }
+    }
+
+    /// Dispatch a request PDU to `slave` and return the response PDU.
+    pub async fn dispatch(
+        &mut self,
+        slave: u8,
+        request_pdu: &[u8],
+    ) -> Result<Vec<u8>, AsciiClientError> {
+        if request_pdu.is_empty() {
+            return Err(AsciiClientError::InvalidResponse);
+        }
+        let request_function = request_pdu[0];
+
+        let adu = AsciiAdu::new(slave, request_pdu.to_vec());
+        let mut tx = [0u8; 512];
+        let n = adu.encode(&mut tx).map_err(AsciiClientError::Encode)?;
+        self.transport.send(&tx[..n]).await?;
+
+        let mut rx = [0u8; 512];
+        let m = self.transport.recv(&mut rx, self.config.timeout).await?;
+        if m == 0 {
+            return Err(AsciiClientError::Transport(TransportError::Disconnected));
+        }
+        let response = AsciiAdu::decode(&rx[..m]).map_err(AsciiClientError::Decode)?;
+        if response.address != slave {
+            return Err(AsciiClientError::InvalidResponse);
+        }
+        if response.pdu.is_empty() {
+            return Err(AsciiClientError::InvalidResponse);
+        }
+
+        let response_function = response.pdu[0];
+        if response_function == request_function | ExceptionResponse::EXCEPTION_FLAG {
+            let exc = ExceptionResponse::decode(&response.pdu).map_err(AsciiClientError::Decode)?;
+            return Err(AsciiClientError::Exception(exc));
+        }
+        if response_function != request_function {
+            return Err(AsciiClientError::InvalidResponse);
+        }
+
+        Ok(response.pdu)
+    }
+
+    /// Read `quantity` coils starting at `address` from `slave`.
+    pub async fn read_coils(
+        &mut self,
+        slave: u8,
+        address: u16,
+        quantity: u16,
+    ) -> Result<Vec<u8>, AsciiClientError> {
+        let req = ReadCoilsRequest::new(address, quantity).map_err(AsciiClientError::Decode)?;
+        let mut buf = [0u8; 5];
+        let n = req.encode(&mut buf).map_err(AsciiClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let resp = ReadCoilsResponse::decode(&pdu).map_err(AsciiClientError::Decode)?;
+        Ok(resp.coil_status)
+    }
+
+    /// Read `quantity` discrete inputs starting at `address` from `slave`.
+    pub async fn read_discrete_inputs(
+        &mut self,
+        slave: u8,
+        address: u16,
+        quantity: u16,
+    ) -> Result<Vec<u8>, AsciiClientError> {
+        let req =
+            ReadDiscreteInputsRequest::new(address, quantity).map_err(AsciiClientError::Decode)?;
+        let mut buf = [0u8; 5];
+        let n = req.encode(&mut buf).map_err(AsciiClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let resp = ReadDiscreteInputsResponse::decode(&pdu).map_err(AsciiClientError::Decode)?;
+        Ok(resp.input_status)
+    }
+
+    /// Read `quantity` holding registers starting at `address` from `slave`.
+    pub async fn read_holding_registers(
+        &mut self,
+        slave: u8,
+        address: u16,
+        quantity: u16,
+    ) -> Result<Vec<u8>, AsciiClientError> {
+        let req = ReadHoldingRegistersRequest::new(address, quantity)
+            .map_err(AsciiClientError::Decode)?;
+        let mut buf = [0u8; 5];
+        let n = req.encode(&mut buf).map_err(AsciiClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let resp = ReadHoldingRegistersResponse::decode(&pdu).map_err(AsciiClientError::Decode)?;
+        Ok(resp.register_values)
+    }
+
+    /// Read `quantity` input registers starting at `address` from `slave`.
+    pub async fn read_input_registers(
+        &mut self,
+        slave: u8,
+        address: u16,
+        quantity: u16,
+    ) -> Result<Vec<u8>, AsciiClientError> {
+        let req =
+            ReadInputRegistersRequest::new(address, quantity).map_err(AsciiClientError::Decode)?;
+        let mut buf = [0u8; 5];
+        let n = req.encode(&mut buf).map_err(AsciiClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let resp = ReadInputRegistersResponse::decode(&pdu).map_err(AsciiClientError::Decode)?;
+        Ok(resp.register_values)
+    }
+
+    /// Write a single coil at `address` on `slave`.
+    pub async fn write_coil(
+        &mut self,
+        slave: u8,
+        address: u16,
+        value: bool,
+    ) -> Result<(), AsciiClientError> {
+        let raw = if value {
+            WriteSingleCoilRequest::ON
+        } else {
+            WriteSingleCoilRequest::OFF
+        };
+        let req = WriteSingleCoilRequest::new(address, raw).map_err(AsciiClientError::Decode)?;
+        let mut buf = [0u8; 5];
+        let n = req.encode(&mut buf).map_err(AsciiClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let _ = WriteSingleCoilResponse::decode(&pdu).map_err(AsciiClientError::Decode)?;
+        Ok(())
+    }
+
+    /// Write a single holding register at `address` on `slave`.
+    pub async fn write_register(
+        &mut self,
+        slave: u8,
+        address: u16,
+        value: u16,
+    ) -> Result<(), AsciiClientError> {
+        let req = WriteSingleRegisterRequest::new(address, value);
+        let mut buf = [0u8; 5];
+        let n = req.encode(&mut buf).map_err(AsciiClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let _ = WriteSingleRegisterResponse::decode(&pdu).map_err(AsciiClientError::Decode)?;
+        Ok(())
+    }
+
+    /// Write multiple coils starting at `address` on `slave`.
+    pub async fn write_coils(
+        &mut self,
+        slave: u8,
+        address: u16,
+        values: &[bool],
+    ) -> Result<(), AsciiClientError> {
+        let outputs = pack_bits(values);
+        let quantity = values.len() as u16;
+        let req = WriteMultipleCoilsRequest::new(address, quantity, outputs)
+            .map_err(AsciiClientError::Decode)?;
+        let mut buf = vec![0u8; 6 + req.outputs.len()];
+        let n = req.encode(&mut buf).map_err(AsciiClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let _ = WriteMultipleCoilsResponse::decode(&pdu).map_err(AsciiClientError::Decode)?;
+        Ok(())
+    }
+
+    /// Write multiple holding registers starting at `address` on `slave`.
+    pub async fn write_registers(
+        &mut self,
+        slave: u8,
+        address: u16,
+        values: &[u16],
+    ) -> Result<(), AsciiClientError> {
+        let mut register_values = Vec::with_capacity(values.len() * 2);
+        for &value in values {
+            register_values.extend_from_slice(&value.to_be_bytes());
+        }
+        let quantity = values.len() as u16;
+        let req = WriteMultipleRegistersRequest::new(address, quantity, register_values)
+            .map_err(AsciiClientError::Decode)?;
+        let mut buf = vec![0u8; 6 + req.register_values.len()];
+        let n = req.encode(&mut buf).map_err(AsciiClientError::Encode)?;
+        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let _ = WriteMultipleRegistersResponse::decode(&pdu).map_err(AsciiClientError::Decode)?;
+        Ok(())
+    }
+}
+
+#[cfg(all(test, feature = "async"))]
+mod async_tests {
+    use super::*;
+    use crate::ascii::AsciiAdu;
+    use crate::server::{DataStore, MemoryStore, Server};
+    use crate::transport::AsyncTransport;
+    use alloc::collections::VecDeque;
+    use core::time::Duration;
+
+    struct AsyncLoopbackTransport {
+        server: Server<MemoryStore>,
+        pending: Option<Vec<u8>>,
+    }
+
+    impl AsyncLoopbackTransport {
+        fn new(server: Server<MemoryStore>) -> Self {
+            Self {
+                server,
+                pending: None,
+            }
+        }
+    }
+
+    impl AsyncTransport for AsyncLoopbackTransport {
+        async fn send(&mut self, data: &[u8]) -> Result<(), TransportError> {
+            let request = AsciiAdu::decode(data).map_err(|_| TransportError::Disconnected)?;
+            let mut pdu_response = [0u8; 512];
+            let n = self
+                .server
+                .dispatch(&request.pdu, &mut pdu_response)
+                .map_err(|_| TransportError::Disconnected)?;
+            let response = AsciiAdu::new(request.address, pdu_response[..n].to_vec());
+            let mut adu = [0u8; 512];
+            let m = response
+                .encode(&mut adu)
+                .map_err(|_| TransportError::Disconnected)?;
+            self.pending = Some(adu[..m].to_vec());
+            Ok(())
+        }
+
+        async fn recv(
+            &mut self,
+            buf: &mut [u8],
+            _timeout: Duration,
+        ) -> Result<usize, TransportError> {
+            let data = self.pending.take().ok_or(TransportError::Disconnected)?;
+            if buf.len() < data.len() {
+                return Err(TransportError::Disconnected);
+            }
+            buf[..data.len()].copy_from_slice(&data);
+            Ok(data.len())
+        }
+    }
+
+    #[tokio::test]
+    async fn read_coils_over_ascii() {
+        let store = MemoryStore::new(16, 0, 0, 0);
+        let mut server = Server::new(store);
+        server
+            .store_mut()
+            .write_coils(0, &[true, false, true, true])
+            .unwrap();
+
+        let mut client = AsyncAsciiClient::new(AsyncLoopbackTransport::new(server));
+        let coils = client.read_coils(0x01, 0, 8).await.unwrap();
+        assert_eq!(coils, vec![0b00001101]);
+    }
+
+    #[tokio::test]
+    async fn write_and_read_holding_register_over_ascii() {
+        let store = MemoryStore::new(0, 0, 4, 0);
+        let server = Server::new(store);
+
+        let mut client = AsyncAsciiClient::new(AsyncLoopbackTransport::new(server));
+        client.write_register(0x01, 1, 0x1234).await.unwrap();
+        let bytes = client.read_holding_registers(0x01, 1, 1).await.unwrap();
+        assert_eq!(bytes, vec![0x12, 0x34]);
+    }
+
+    #[tokio::test]
+    async fn dispatch_returns_exception() {
+        let request_pdu = {
+            let req = ReadCoilsRequest::new(0x0000, 10).unwrap();
+            let mut buf = [0u8; 5];
+            let n = req.encode(&mut buf).unwrap();
+            buf[..n].to_vec()
+        };
+        let exception_pdu = {
+            let exc =
+                ExceptionResponse::new(0x01, crate::exception::ExceptionCode::IllegalDataAddress);
+            let mut buf = [0u8; 2];
+            let n = exc.encode(&mut buf).unwrap();
+            buf[..n].to_vec()
+        };
+        let response_adu = {
+            let adu = AsciiAdu::new(0x01, exception_pdu);
+            let mut buf = [0u8; 32];
+            let n = adu.encode(&mut buf).unwrap();
+            buf[..n].to_vec()
+        };
+
+        let mut client = AsyncAsciiClient::new(MockAsyncTransport::new(vec![response_adu]));
+        let err = client.dispatch(0x01, &request_pdu).await.unwrap_err();
+        assert!(matches!(err, AsciiClientError::Exception(_)));
+    }
+
+    #[tokio::test]
+    async fn dispatch_rejects_wrong_slave() {
+        let response_adu = {
+            let pdu = {
+                let resp = ReadCoilsResponse {
+                    coil_status: vec![0x01],
+                };
+                let mut buf = [0u8; 3];
+                let n = resp.encode(&mut buf).unwrap();
+                buf[..n].to_vec()
+            };
+            let adu = AsciiAdu::new(0x02, pdu);
+            let mut buf = [0u8; 32];
+            let n = adu.encode(&mut buf).unwrap();
+            buf[..n].to_vec()
+        };
+
+        let mut client = AsyncAsciiClient::new(MockAsyncTransport::new(vec![response_adu]));
+        let err = client
+            .dispatch(0x01, &[0x01, 0x00, 0x00, 0x00, 0x01])
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AsciiClientError::InvalidResponse));
+    }
+
+    struct MockAsyncTransport {
+        sent: Vec<Vec<u8>>,
+        responses: VecDeque<Vec<u8>>,
+    }
+
+    impl MockAsyncTransport {
+        fn new(responses: Vec<Vec<u8>>) -> Self {
+            Self {
+                sent: Vec::new(),
+                responses: responses.into(),
+            }
+        }
+    }
+
+    impl AsyncTransport for MockAsyncTransport {
+        async fn send(&mut self, data: &[u8]) -> Result<(), TransportError> {
+            self.sent.push(data.to_vec());
+            Ok(())
+        }
+
+        async fn recv(
+            &mut self,
+            buf: &mut [u8],
+            _timeout: Duration,
+        ) -> Result<usize, TransportError> {
             let resp = self
                 .responses
                 .pop_front()

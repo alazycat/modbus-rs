@@ -1,1 +1,4 @@
 .loop-state.json
+target/
+Cargo.lock
+.claude/settings.local.json

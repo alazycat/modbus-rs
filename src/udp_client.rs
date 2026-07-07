@@ -1,16 +1,17 @@
-//! Synchronous TCP client.
+//! Synchronous UDP client.
 //!
-//! This module is available when both the `tcp` and `sync` features are
-//! enabled. It wraps request PDUs in the MODBUS TCP MBAP header, tracks
+//! This module is available when both the `udp` and `sync` features are
+//! enabled. It wraps request PDUs in the MODBUS UDP MBAP header, tracks
 //! transaction IDs, validates responses, and exposes high-level methods for
 //! reading and writing coils and registers.
 
-#![cfg(all(feature = "tcp", feature = "sync"))]
+#![cfg(all(feature = "udp", feature = "sync"))]
 
 use alloc::vec;
 use alloc::vec::Vec;
 use core::time::Duration;
 
+use crate::client::pack_bits;
 use crate::error::{DecodeError, EncodeError};
 use crate::exception::ExceptionResponse;
 use crate::function_codes::read_coils::{ReadCoilsRequest, ReadCoilsResponse};
@@ -29,24 +30,21 @@ use crate::function_codes::write_multiple_coils::{
 use crate::function_codes::write_multiple_registers::{
     WriteMultipleRegistersRequest, WriteMultipleRegistersResponse,
 };
-use crate::function_codes::write_single_coil::{
-    WriteSingleCoilRequest, WriteSingleCoilResponse,
-};
+use crate::function_codes::write_single_coil::{WriteSingleCoilRequest, WriteSingleCoilResponse};
 use crate::function_codes::write_single_register::{
     WriteSingleRegisterRequest, WriteSingleRegisterResponse,
 };
-use crate::client::pack_bits;
-use crate::tcp::TcpAdu;
 use crate::transport::{Transport, TransportError};
+use crate::udp::UdpAdu;
 
-/// Configuration for a synchronous TCP client.
+/// Configuration for a synchronous UDP client.
 #[derive(Debug, Clone, Copy)]
-pub struct TcpClientConfig {
+pub struct UdpClientConfig {
     /// Maximum time to wait for a response.
     pub timeout: Duration,
 }
 
-impl Default for TcpClientConfig {
+impl Default for UdpClientConfig {
     fn default() -> Self {
         Self {
             timeout: Duration::from_secs(5),
@@ -54,9 +52,9 @@ impl Default for TcpClientConfig {
     }
 }
 
-/// Errors that can occur while using the synchronous TCP client.
+/// Errors that can occur while using the synchronous UDP client.
 #[derive(Debug)]
-pub enum TcpClientError {
+pub enum UdpClientError {
     /// Transport-level failure.
     Transport(TransportError),
     /// Failed to encode the request.
@@ -71,20 +69,20 @@ pub enum TcpClientError {
     Exception(ExceptionResponse),
 }
 
-impl core::fmt::Display for TcpClientError {
+impl core::fmt::Display for UdpClientError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::Transport(e) => write!(f, "TCP client transport error: {e}"),
-            Self::Encode(e) => write!(f, "TCP client encode error: {e}"),
-            Self::Decode(e) => write!(f, "TCP client decode error: {e}"),
-            Self::Timeout => write!(f, "TCP client timeout"),
+            Self::Transport(e) => write!(f, "UDP client transport error: {e}"),
+            Self::Encode(e) => write!(f, "UDP client encode error: {e}"),
+            Self::Decode(e) => write!(f, "UDP client decode error: {e}"),
+            Self::Timeout => write!(f, "UDP client timeout"),
             Self::InvalidResponse => write!(f, "invalid response"),
             Self::Exception(e) => write!(f, "server exception: {e:?}"),
         }
     }
 }
 
-impl std::error::Error for TcpClientError {
+impl std::error::Error for UdpClientError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Transport(e) => Some(e),
@@ -95,7 +93,7 @@ impl std::error::Error for TcpClientError {
     }
 }
 
-impl From<TransportError> for TcpClientError {
+impl From<TransportError> for UdpClientError {
     fn from(e: TransportError) -> Self {
         match e {
             TransportError::Timeout => Self::Timeout,
@@ -104,22 +102,22 @@ impl From<TransportError> for TcpClientError {
     }
 }
 
-/// A synchronous TCP Modbus client.
+/// A synchronous UDP Modbus client.
 #[derive(Debug)]
-pub struct TcpClient<T: Transport> {
+pub struct UdpClient<T: Transport> {
     transport: T,
-    config: TcpClientConfig,
+    config: UdpClientConfig,
     next_transaction_id: u16,
 }
 
-impl<T: Transport> TcpClient<T> {
+impl<T: Transport> UdpClient<T> {
     /// Create a client with the default configuration.
     pub fn new(transport: T) -> Self {
-        Self::with_config(transport, TcpClientConfig::default())
+        Self::with_config(transport, UdpClientConfig::default())
     }
 
     /// Create a client with a custom configuration.
-    pub fn with_config(transport: T, config: TcpClientConfig) -> Self {
+    pub fn with_config(transport: T, config: UdpClientConfig) -> Self {
         Self {
             transport,
             config,
@@ -132,42 +130,42 @@ impl<T: Transport> TcpClient<T> {
         &mut self,
         unit_id: u8,
         request_pdu: &[u8],
-    ) -> Result<Vec<u8>, TcpClientError> {
+    ) -> Result<Vec<u8>, UdpClientError> {
         if request_pdu.is_empty() {
-            return Err(TcpClientError::InvalidResponse);
+            return Err(UdpClientError::InvalidResponse);
         }
         let request_function = request_pdu[0];
         let transaction_id = self.next_transaction_id;
         self.next_transaction_id = self.next_transaction_id.wrapping_add(1);
 
-        let adu = TcpAdu::new(transaction_id, unit_id, request_pdu.to_vec());
+        let adu = UdpAdu::new(transaction_id, unit_id, request_pdu.to_vec());
         let mut tx = [0u8; 512];
-        let n = adu.encode(&mut tx).map_err(TcpClientError::Encode)?;
+        let n = adu.encode(&mut tx).map_err(UdpClientError::Encode)?;
         self.transport.send(&tx[..n])?;
 
         let mut rx = [0u8; 512];
         let m = self.transport.recv(&mut rx, self.config.timeout)?;
         if m == 0 {
-            return Err(TcpClientError::Transport(TransportError::Disconnected));
+            return Err(UdpClientError::Transport(TransportError::Disconnected));
         }
-        let response = TcpAdu::decode(&rx[..m]).map_err(TcpClientError::Decode)?;
+        let response = UdpAdu::decode(&rx[..m]).map_err(UdpClientError::Decode)?;
         if response.transaction_id != transaction_id {
-            return Err(TcpClientError::InvalidResponse);
+            return Err(UdpClientError::InvalidResponse);
         }
         if response.unit_id != unit_id {
-            return Err(TcpClientError::InvalidResponse);
+            return Err(UdpClientError::InvalidResponse);
         }
         if response.pdu.is_empty() {
-            return Err(TcpClientError::InvalidResponse);
+            return Err(UdpClientError::InvalidResponse);
         }
 
         let response_function = response.pdu[0];
         if response_function == request_function | ExceptionResponse::EXCEPTION_FLAG {
-            let exc = ExceptionResponse::decode(&response.pdu).map_err(TcpClientError::Decode)?;
-            return Err(TcpClientError::Exception(exc));
+            let exc = ExceptionResponse::decode(&response.pdu).map_err(UdpClientError::Decode)?;
+            return Err(UdpClientError::Exception(exc));
         }
         if response_function != request_function {
-            return Err(TcpClientError::InvalidResponse);
+            return Err(UdpClientError::InvalidResponse);
         }
 
         Ok(response.pdu)
@@ -179,12 +177,12 @@ impl<T: Transport> TcpClient<T> {
         unit_id: u8,
         address: u16,
         quantity: u16,
-    ) -> Result<Vec<u8>, TcpClientError> {
-        let req = ReadCoilsRequest::new(address, quantity).map_err(TcpClientError::Decode)?;
+    ) -> Result<Vec<u8>, UdpClientError> {
+        let req = ReadCoilsRequest::new(address, quantity).map_err(UdpClientError::Decode)?;
         let mut buf = [0u8; 5];
-        let n = req.encode(&mut buf).map_err(TcpClientError::Encode)?;
+        let n = req.encode(&mut buf).map_err(UdpClientError::Encode)?;
         let pdu = self.dispatch(unit_id, &buf[..n])?;
-        let resp = ReadCoilsResponse::decode(&pdu).map_err(TcpClientError::Decode)?;
+        let resp = ReadCoilsResponse::decode(&pdu).map_err(UdpClientError::Decode)?;
         Ok(resp.coil_status)
     }
 
@@ -194,13 +192,13 @@ impl<T: Transport> TcpClient<T> {
         unit_id: u8,
         address: u16,
         quantity: u16,
-    ) -> Result<Vec<u8>, TcpClientError> {
+    ) -> Result<Vec<u8>, UdpClientError> {
         let req = ReadDiscreteInputsRequest::new(address, quantity)
-            .map_err(TcpClientError::Decode)?;
+            .map_err(UdpClientError::Decode)?;
         let mut buf = [0u8; 5];
-        let n = req.encode(&mut buf).map_err(TcpClientError::Encode)?;
+        let n = req.encode(&mut buf).map_err(UdpClientError::Encode)?;
         let pdu = self.dispatch(unit_id, &buf[..n])?;
-        let resp = ReadDiscreteInputsResponse::decode(&pdu).map_err(TcpClientError::Decode)?;
+        let resp = ReadDiscreteInputsResponse::decode(&pdu).map_err(UdpClientError::Decode)?;
         Ok(resp.input_status)
     }
 
@@ -210,13 +208,13 @@ impl<T: Transport> TcpClient<T> {
         unit_id: u8,
         address: u16,
         quantity: u16,
-    ) -> Result<Vec<u8>, TcpClientError> {
+    ) -> Result<Vec<u8>, UdpClientError> {
         let req = ReadHoldingRegistersRequest::new(address, quantity)
-            .map_err(TcpClientError::Decode)?;
+            .map_err(UdpClientError::Decode)?;
         let mut buf = [0u8; 5];
-        let n = req.encode(&mut buf).map_err(TcpClientError::Encode)?;
+        let n = req.encode(&mut buf).map_err(UdpClientError::Encode)?;
         let pdu = self.dispatch(unit_id, &buf[..n])?;
-        let resp = ReadHoldingRegistersResponse::decode(&pdu).map_err(TcpClientError::Decode)?;
+        let resp = ReadHoldingRegistersResponse::decode(&pdu).map_err(UdpClientError::Decode)?;
         Ok(resp.register_values)
     }
 
@@ -226,13 +224,13 @@ impl<T: Transport> TcpClient<T> {
         unit_id: u8,
         address: u16,
         quantity: u16,
-    ) -> Result<Vec<u8>, TcpClientError> {
+    ) -> Result<Vec<u8>, UdpClientError> {
         let req = ReadInputRegistersRequest::new(address, quantity)
-            .map_err(TcpClientError::Decode)?;
+            .map_err(UdpClientError::Decode)?;
         let mut buf = [0u8; 5];
-        let n = req.encode(&mut buf).map_err(TcpClientError::Encode)?;
+        let n = req.encode(&mut buf).map_err(UdpClientError::Encode)?;
         let pdu = self.dispatch(unit_id, &buf[..n])?;
-        let resp = ReadInputRegistersResponse::decode(&pdu).map_err(TcpClientError::Decode)?;
+        let resp = ReadInputRegistersResponse::decode(&pdu).map_err(UdpClientError::Decode)?;
         Ok(resp.register_values)
     }
 
@@ -242,17 +240,17 @@ impl<T: Transport> TcpClient<T> {
         unit_id: u8,
         address: u16,
         value: bool,
-    ) -> Result<(), TcpClientError> {
+    ) -> Result<(), UdpClientError> {
         let raw = if value {
             WriteSingleCoilRequest::ON
         } else {
             WriteSingleCoilRequest::OFF
         };
-        let req = WriteSingleCoilRequest::new(address, raw).map_err(TcpClientError::Decode)?;
+        let req = WriteSingleCoilRequest::new(address, raw).map_err(UdpClientError::Decode)?;
         let mut buf = [0u8; 5];
-        let n = req.encode(&mut buf).map_err(TcpClientError::Encode)?;
+        let n = req.encode(&mut buf).map_err(UdpClientError::Encode)?;
         let pdu = self.dispatch(unit_id, &buf[..n])?;
-        let _ = WriteSingleCoilResponse::decode(&pdu).map_err(TcpClientError::Decode)?;
+        let _ = WriteSingleCoilResponse::decode(&pdu).map_err(UdpClientError::Decode)?;
         Ok(())
     }
 
@@ -262,12 +260,12 @@ impl<T: Transport> TcpClient<T> {
         unit_id: u8,
         address: u16,
         value: u16,
-    ) -> Result<(), TcpClientError> {
+    ) -> Result<(), UdpClientError> {
         let req = WriteSingleRegisterRequest::new(address, value);
         let mut buf = [0u8; 5];
-        let n = req.encode(&mut buf).map_err(TcpClientError::Encode)?;
+        let n = req.encode(&mut buf).map_err(UdpClientError::Encode)?;
         let pdu = self.dispatch(unit_id, &buf[..n])?;
-        let _ = WriteSingleRegisterResponse::decode(&pdu).map_err(TcpClientError::Decode)?;
+        let _ = WriteSingleRegisterResponse::decode(&pdu).map_err(UdpClientError::Decode)?;
         Ok(())
     }
 
@@ -277,15 +275,15 @@ impl<T: Transport> TcpClient<T> {
         unit_id: u8,
         address: u16,
         values: &[bool],
-    ) -> Result<(), TcpClientError> {
+    ) -> Result<(), UdpClientError> {
         let outputs = pack_bits(values);
         let quantity = values.len() as u16;
         let req = WriteMultipleCoilsRequest::new(address, quantity, outputs)
-            .map_err(TcpClientError::Decode)?;
+            .map_err(UdpClientError::Decode)?;
         let mut buf = vec![0u8; 6 + req.outputs.len()];
-        let n = req.encode(&mut buf).map_err(TcpClientError::Encode)?;
+        let n = req.encode(&mut buf).map_err(UdpClientError::Encode)?;
         let pdu = self.dispatch(unit_id, &buf[..n])?;
-        let _ = WriteMultipleCoilsResponse::decode(&pdu).map_err(TcpClientError::Decode)?;
+        let _ = WriteMultipleCoilsResponse::decode(&pdu).map_err(UdpClientError::Decode)?;
         Ok(())
     }
 
@@ -295,18 +293,18 @@ impl<T: Transport> TcpClient<T> {
         unit_id: u8,
         address: u16,
         values: &[u16],
-    ) -> Result<(), TcpClientError> {
+    ) -> Result<(), UdpClientError> {
         let mut register_values = Vec::with_capacity(values.len() * 2);
         for &value in values {
             register_values.extend_from_slice(&value.to_be_bytes());
         }
         let quantity = values.len() as u16;
         let req = WriteMultipleRegistersRequest::new(address, quantity, register_values)
-            .map_err(TcpClientError::Decode)?;
+            .map_err(UdpClientError::Decode)?;
         let mut buf = vec![0u8; 6 + req.register_values.len()];
-        let n = req.encode(&mut buf).map_err(TcpClientError::Encode)?;
+        let n = req.encode(&mut buf).map_err(UdpClientError::Encode)?;
         let pdu = self.dispatch(unit_id, &buf[..n])?;
-        let _ = WriteMultipleRegistersResponse::decode(&pdu).map_err(TcpClientError::Decode)?;
+        let _ = WriteMultipleRegistersResponse::decode(&pdu).map_err(UdpClientError::Decode)?;
         Ok(())
     }
 }
@@ -315,8 +313,8 @@ impl<T: Transport> TcpClient<T> {
 mod tests {
     use super::*;
     use crate::server::{DataStore, MemoryStore, Server};
-    use crate::tcp::TcpAdu;
     use crate::transport::Transport;
+    use crate::udp::UdpAdu;
     use core::time::Duration;
 
     struct LoopbackTransport {
@@ -335,15 +333,17 @@ mod tests {
 
     impl Transport for LoopbackTransport {
         fn send(&mut self, data: &[u8]) -> Result<(), TransportError> {
-            let request = TcpAdu::decode(data).map_err(|_| TransportError::Disconnected)?;
+            let request = UdpAdu::decode(data).map_err(|_| TransportError::Disconnected)?;
             let mut pdu_response = [0u8; 512];
             let n = self
                 .server
                 .dispatch(&request.pdu, &mut pdu_response)
                 .map_err(|_| TransportError::Disconnected)?;
-            let response = TcpAdu::new(request.transaction_id, request.unit_id, pdu_response[..n].to_vec());
+            let response = UdpAdu::new(request.transaction_id, request.unit_id, pdu_response[..n].to_vec());
             let mut adu = [0u8; 512];
-            let m = response.encode(&mut adu).map_err(|_| TransportError::Disconnected)?;
+            let m = response
+                .encode(&mut adu)
+                .map_err(|_| TransportError::Disconnected)?;
             self.pending = Some(adu[..m].to_vec());
             Ok(())
         }
@@ -363,22 +363,22 @@ mod tests {
     }
 
     #[test]
-    fn read_coils_over_tcp() {
+    fn read_coils_over_udp() {
         let store = MemoryStore::new(16, 0, 0, 0);
         let mut server = Server::new(store);
         server.store_mut().write_coils(0, &[true, false, true, true]).unwrap();
 
-        let mut client = TcpClient::new(LoopbackTransport::new(server));
+        let mut client = UdpClient::new(LoopbackTransport::new(server));
         let coils = client.read_coils(0x0A, 0, 8).unwrap();
         assert_eq!(coils, vec![0b00001101]);
     }
 
     #[test]
-    fn write_and_read_holding_register_over_tcp() {
+    fn write_and_read_holding_register_over_udp() {
         let store = MemoryStore::new(0, 0, 4, 0);
         let server = Server::new(store);
 
-        let mut client = TcpClient::new(LoopbackTransport::new(server));
+        let mut client = UdpClient::new(LoopbackTransport::new(server));
         client.write_register(0x0A, 1, 0x1234).unwrap();
         let bytes = client.read_holding_registers(0x0A, 1, 1).unwrap();
         assert_eq!(bytes, vec![0x12, 0x34]);
@@ -390,13 +390,9 @@ mod tests {
         let mut server = Server::new(store);
         server.store_mut().write_coils(0, &[true, true, true, true]).unwrap();
 
-        let mut client = TcpClient::new(LoopbackTransport::new(server));
+        let mut client = UdpClient::new(LoopbackTransport::new(server));
         let _ = client.read_coils(0x01, 0, 8).unwrap();
         let _ = client.read_coils(0x01, 0, 8).unwrap();
-
-        // Transaction IDs should differ; exact values are an implementation detail.
-        // The loopback server echoes the request transaction ID, so if dispatch
-        // succeeded both were tracked correctly.
     }
 
     #[test]
@@ -413,7 +409,7 @@ mod tests {
                 buf: &mut [u8],
                 _timeout: Duration,
             ) -> Result<usize, TransportError> {
-                let response = TcpAdu::new(0x9999, 0x01, vec![0x01, 0x01, 0x0F]);
+                let response = UdpAdu::new(0x9999, 0x01, vec![0x01, 0x01, 0x0F]);
                 let mut tmp = [0u8; 32];
                 let n = response.encode(&mut tmp).unwrap();
                 buf[..n].copy_from_slice(&tmp[..n]);
@@ -421,8 +417,8 @@ mod tests {
             }
         }
 
-        let mut client = TcpClient::new(BadTransport);
+        let mut client = UdpClient::new(BadTransport);
         let err = client.read_coils(0x01, 0, 8).unwrap_err();
-        assert!(matches!(err, TcpClientError::InvalidResponse));
+        assert!(matches!(err, UdpClientError::InvalidResponse));
     }
 }

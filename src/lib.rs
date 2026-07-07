@@ -25,6 +25,9 @@ pub mod ascii_transport;
 #[cfg(all(feature = "ascii", feature = "sync"))]
 pub mod ascii_client;
 
+#[cfg(all(feature = "ascii", feature = "sync"))]
+pub mod ascii_server;
+
 #[cfg(feature = "tcp")]
 pub mod tcp;
 

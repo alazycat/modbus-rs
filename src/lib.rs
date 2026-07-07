@@ -7,6 +7,10 @@ pub mod function;
 pub mod function_codes;
 
 pub use error::{DecodeError, EncodeError};
+pub use function_codes::read_file_record::{
+    ReadFileRecordRequest, ReadFileRecordResponse, ReadFileRecordSubRequest,
+    ReadFileRecordSubResponse,
+};
 pub use function_codes::report_server_id::{
     ReportServerIdRequest, ReportServerIdResponse,
 };

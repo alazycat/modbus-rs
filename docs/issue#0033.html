@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0033</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/alazycat/modbus-rs/issues/33">#0033</a> &mdash; Sync UDP client for coils &amp; registers &mdash; 2026-07-07</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Validate UDP response source address</h3>
+      <p><strong>Ambiguity:</strong> UDP is connectionless, so a received datagram could come from any host.</p>
+      <p><strong>Choice:</strong> <code>UdpTransport::recv</code> captures the peer address from <code>recv_from</code> and returns <code>TransportError::Disconnected</code> if it does not match the configured remote.</p>
+      <p><strong>Rationale:</strong> Prevents accepting spoofed or stray responses. The check is done at the transport layer so the client can rely on transaction/unit ID validation alone.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Per-call recv timeout via socket read timeout</h3>
+      <p><strong>Ambiguity:</strong> The <code>Transport::recv</codeu003e API passes a timeout per call, but <code>UdpSocket</code> only supports a global read timeout.</p>
+      <p><strong>Choice:</strong> Set the socket read timeout to the supplied duration on each <code>recv</code> call; treat <code>Duration::ZERO</code> as an immediate timeout without touching the socket.</p>
+      <p><strong>Rationale:</strong> Fits the existing <code>Transport</code> contract and avoids platform-specific rejection of zero-length timeouts. It does overwrite any timeout the caller configured on the socket; this is documented implicitly by the trait.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Aligned TCP client error formatting</h3>
+      <p><strong>Spec said:</strong> Issue #33 is about UDP client only.</p>
+      <p><strong>Implemented:</strong> Also updated <code>TcpClientError</code> to use Display formatting and chain <code>EncodeError</code>/<code>DecodeError</code> through <code>Error::source</code>, matching the new UDP client.</p>
+      <p><strong>Why:</strong> The two error enums were otherwise identical; keeping them consistent reduces future maintenance burden.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Fixed-size receive buffer</h3>
+      <p><strong>Alternatives:</strong> Allocate a Vec sized from the UDP datagram length, or peek the datagram size first.</p>
+      <p><strong>Chosen:</strong> A 512-byte stack buffer in the client and transport, matching the TCP/RTU/ASCII clients.</p>
+      <p><strong>Why:</strong> Keeps the implementation uniform and allocation-free on the hot path. The downside is that a max-length Modbus response may not fit; current PDU lengths stay well below this limit.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Response buffer sizing for maximum ADU</h3>
+      <p>Should the UDP transport and client size their receive buffers to the maximum UDP ADU (7 + 253 = 260 bytes) explicitly, or keep the shared 512-byte buffer used across all transports?</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

@@ -7,4 +7,7 @@ pub mod function;
 pub mod function_codes;
 
 pub use error::{DecodeError, EncodeError};
+pub use function_codes::read_discrete_inputs::{
+    ReadDiscreteInputsRequest, ReadDiscreteInputsResponse,
+};
 pub use function_codes::read_coils::{ReadCoilsRequest, ReadCoilsResponse};

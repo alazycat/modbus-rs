@@ -13,6 +13,9 @@ pub mod rtu;
 #[cfg(all(feature = "rtu", feature = "sync"))]
 pub mod rtu_transport;
 
+#[cfg(all(feature = "rtu", feature = "sync"))]
+pub mod rtu_server;
+
 #[cfg(feature = "ascii")]
 pub mod ascii;
 

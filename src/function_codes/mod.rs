@@ -1,5 +1,6 @@
 pub mod diagnostics;
 pub mod get_comm_event_counter;
+pub mod get_comm_event_log;
 pub mod mask_write_register;
 pub mod read_coils;
 pub mod read_discrete_inputs;

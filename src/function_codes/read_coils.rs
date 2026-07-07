@@ -41,8 +41,11 @@ impl ReadCoilsRequest {
 
     /// Decode a request from `buf`.
     pub fn decode(buf: &[u8]) -> Result<Self, DecodeError> {
-        if buf.len() < 5 || buf[0] != Self::FUNCTION_CODE {
+        if buf.len() < 5 {
             return Err(DecodeError::InvalidLength);
+        }
+        if buf[0] != Self::FUNCTION_CODE {
+            return Err(DecodeError::UnknownFunctionCode);
         }
         let starting_address = u16::from_be_bytes([buf[1], buf[2]]);
         let quantity = u16::from_be_bytes([buf[3], buf[4]]);
@@ -130,6 +133,15 @@ mod tests {
 
         let decoded = ReadCoilsResponse::decode(&buf).unwrap();
         assert_eq!(decoded, resp);
+    }
+
+    #[test]
+    fn request_decode_rejects_wrong_function_code() {
+        let buf = [0x02, 0x00, 0x13, 0x00, 0x13];
+        assert!(matches!(
+            ReadCoilsRequest::decode(&buf),
+            Err(DecodeError::UnknownFunctionCode)
+        ));
     }
 
     #[test]

@@ -14,14 +14,20 @@ sync = ["std", "rtu"]
 async = ["std", "dep:tokio"]
 serial = ["rtu", "async", "dep:tokio-serial"]
 helpers = []
-cli = ["std", "async", "tcp", "rtu", "dep:clap", "dep:tracing"]
+cli = ["std", "async", "tcp", "rtu", "serial", "dep:clap", "dep:tracing", "dep:tracing-subscriber"]
 loopback-tests = ["rtu", "ascii", "serial"]
 
 [dependencies]
-tokio = { version = "1", features = ["net", "rt", "io-util", "time"], optional = true }
+tokio = { version = "1", features = ["net", "rt", "rt-multi-thread", "io-util", "time", "macros"], optional = true }
 tokio-serial = { version = "5", optional = true }
 clap = { version = "4", features = ["derive"], optional = true }
 tracing = { version = "0.1", optional = true }
+tracing-subscriber = { version = "0.3", optional = true }
+
+[[bin]]
+name = "modbus-cli"
+path = "src/bin/modbus_cli.rs"
+required-features = ["cli"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

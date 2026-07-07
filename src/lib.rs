@@ -10,7 +10,7 @@ pub mod function_codes;
 #[cfg(feature = "helpers")]
 pub mod helpers;
 
-#[cfg(feature = "rtu")]
+#[cfg(any(feature = "rtu", feature = "async"))]
 pub mod rtu;
 
 #[cfg(all(feature = "rtu", feature = "sync"))]
@@ -55,17 +55,23 @@ pub mod udp_client;
 #[cfg(all(feature = "udp", feature = "sync"))]
 pub mod udp_server;
 
-#[cfg(feature = "sync")]
+#[cfg(any(feature = "sync", feature = "async"))]
 pub mod transport;
 
-#[cfg(feature = "sync")]
+#[cfg(any(feature = "sync", feature = "async"))]
 pub mod client;
 
-#[cfg(feature = "sync")]
+#[cfg(any(feature = "sync", feature = "async"))]
 pub mod server;
 
 #[cfg(feature = "sync")]
-pub use server::{DataStore, MemoryStore, Server};
+pub use server::Server;
+
+#[cfg(feature = "async")]
+pub use server::AsyncServer;
+
+#[cfg(any(feature = "sync", feature = "async"))]
+pub use server::{DataStore, MemoryStore};
 
 pub use error::{DecodeError, EncodeError};
 pub use exception::{ExceptionCode, ExceptionResponse};

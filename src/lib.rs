@@ -13,6 +13,9 @@ pub mod rtu;
 #[cfg(feature = "ascii")]
 pub mod ascii;
 
+#[cfg(feature = "tcp")]
+pub mod tcp;
+
 pub use error::{DecodeError, EncodeError};
 pub use exception::{ExceptionCode, ExceptionResponse};
 pub use function_codes::encapsulated_interface_transport::{

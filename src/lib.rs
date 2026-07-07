@@ -7,6 +7,9 @@ pub mod exception;
 pub mod function;
 pub mod function_codes;
 
+#[cfg(feature = "helpers")]
+pub mod helpers;
+
 #[cfg(feature = "rtu")]
 pub mod rtu;
 

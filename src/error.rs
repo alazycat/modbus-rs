@@ -12,6 +12,8 @@ pub enum DecodeError {
     InvalidLength,
     /// The quantity field is outside the allowed range for the function code.
     InvalidQuantity,
+    /// A value field is outside the allowed range for the function code.
+    InvalidValue,
     /// The function code in the response does not match the request.
     UnknownFunctionCode,
 }
@@ -37,6 +39,7 @@ impl std::fmt::Display for DecodeError {
         match self {
             DecodeError::InvalidLength => write!(f, "invalid length"),
             DecodeError::InvalidQuantity => write!(f, "invalid quantity"),
+            DecodeError::InvalidValue => write!(f, "invalid value"),
             DecodeError::UnknownFunctionCode => write!(f, "unknown function code"),
         }
     }

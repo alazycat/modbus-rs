@@ -52,9 +52,21 @@ impl AsciiAdu {
     /// End-of-frame marker.
     pub const END: &[u8] = b"\r\n";
 
+    /// Minimum size of a complete ASCII frame: `:AA LL\r\n` (one address byte,
+    /// one PDU byte, one LRC byte, start, and end markers).
+    pub const MIN_FRAME_SIZE: usize = 9;
+
+    /// Broadcast address. Responses are not expected for broadcast requests.
+    pub const BROADCAST_ADDRESS: u8 = 0x00;
+
     /// Create a new ADU.
     pub fn new(address: u8, pdu: Vec<u8>) -> Self {
         Self { address, pdu }
+    }
+
+    /// Returns `true` if this ADU is addressed to the broadcast address.
+    pub fn is_broadcast(&self) -> bool {
+        self.address == Self::BROADCAST_ADDRESS
     }
 
     /// Encode the ADU into `buf` and return the number of bytes written.
@@ -74,11 +86,12 @@ impl AsciiAdu {
             offset += 2;
         }
 
-        let mut sum = self.address;
-        for &b in &self.pdu {
-            sum = sum.wrapping_add(b);
-        }
-        let lrc = sum.wrapping_neg();
+        let lrc = {
+            let mut data = Vec::with_capacity(1 + self.pdu.len());
+            data.push(self.address);
+            data.extend_from_slice(&self.pdu);
+            lrc8(&data)
+        };
         let hex = encode_hex_byte(lrc);
         buf[offset] = hex[0];
         buf[offset + 1] = hex[1];
@@ -92,7 +105,7 @@ impl AsciiAdu {
 
     /// Decode an ADU from `buf`, verifying the LRC-8.
     pub fn decode(buf: &[u8]) -> Result<Self, DecodeError> {
-        if buf.len() < 9 {
+        if buf.len() < Self::MIN_FRAME_SIZE {
             return Err(DecodeError::InvalidLength);
         }
         if buf[0] != Self::START {

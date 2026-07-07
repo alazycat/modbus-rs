@@ -1,25 +1,37 @@
-//! Synchronous TCP transport.
+//! Synchronous and asynchronous TCP transport.
 //!
-//! This module is available when both the `tcp` and `sync` features are
-//! enabled. The transport sends and receives complete MODBUS TCP ADU frames
-//! over an underlying byte stream that implements [`std::io::Read`] and
-//! [`std::io::Write`]. The MBAP header is used to know the exact frame size
-//! before reading the PDU.
+//! This module is available when the `tcp` feature and at least one of the
+//! `sync` or `async` runtime features are enabled. The transport sends and
+//! receives complete MODBUS TCP ADU frames over an underlying byte stream.
+//! The MBAP header is used to know the exact frame size before reading the PDU.
 
-#![cfg(all(feature = "tcp", feature = "sync"))]
+#![cfg(all(feature = "tcp", any(feature = "sync", feature = "async")))]
 
-use std::io::{self, Read, Write};
 use std::time::Duration;
 
 use crate::tcp::{TcpAdu, MODBUS_PROTOCOL_ID};
-use crate::transport::{Transport, TransportError};
+use crate::transport::TransportError;
+
+#[cfg(feature = "sync")]
+use std::io::{self, Read, Write};
+
+#[cfg(feature = "sync")]
+use crate::transport::Transport;
+
+#[cfg(feature = "async")]
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+#[cfg(feature = "async")]
+use crate::transport::AsyncTransport;
 
 /// A synchronous TCP transport wrapping a [`Read`] + [`Write`] stream.
+#[cfg(feature = "sync")]
 #[derive(Debug)]
 pub struct TcpTransport<T> {
     stream: T,
 }
 
+#[cfg(feature = "sync")]
 impl<T> TcpTransport<T> {
     /// Create a new TCP transport around `stream`.
     pub fn new(stream: T) -> Self {
@@ -42,6 +54,7 @@ impl<T> TcpTransport<T> {
     }
 }
 
+#[cfg(feature = "sync")]
 impl<T: Read + Write> Transport for TcpTransport<T> {
     fn send(&mut self, data: &[u8]) -> Result<(), TransportError> {
         self.stream.write_all(data).map_err(TransportError::Io)?;
@@ -73,6 +86,7 @@ impl<T: Read + Write> Transport for TcpTransport<T> {
     }
 }
 
+#[cfg(feature = "sync")]
 fn read_all<T: Read>(stream: &mut T, buf: &mut [u8]) -> Result<(), TransportError> {
     let mut pos = 0;
     while pos < buf.len() {
@@ -91,7 +105,87 @@ fn read_all<T: Read>(stream: &mut T, buf: &mut [u8]) -> Result<(), TransportErro
     Ok(())
 }
 
-#[cfg(test)]
+/// An asynchronous TCP transport wrapping an [`AsyncReadExt`] + [`AsyncWriteExt`] stream.
+#[cfg(feature = "async")]
+#[derive(Debug)]
+pub struct AsyncTcpTransport<T> {
+    stream: T,
+}
+
+#[cfg(feature = "async")]
+impl<T> AsyncTcpTransport<T> {
+    /// Create a new async TCP transport around `stream`.
+    pub fn new(stream: T) -> Self {
+        Self { stream }
+    }
+
+    /// Return the underlying stream.
+    pub fn into_inner(self) -> T {
+        self.stream
+    }
+
+    /// Return an immutable reference to the underlying stream.
+    pub fn stream(&self) -> &T {
+        &self.stream
+    }
+
+    /// Return a mutable reference to the underlying stream.
+    pub fn stream_mut(&mut self) -> &mut T {
+        &mut self.stream
+    }
+}
+
+#[cfg(feature = "async")]
+impl<T: AsyncReadExt + AsyncWriteExt + Unpin + Send> AsyncTransport for AsyncTcpTransport<T> {
+    async fn send(&mut self, data: &[u8]) -> Result<(), TransportError> {
+        self.stream.write_all(data).await.map_err(TransportError::Io)?;
+        self.stream.flush().await.map_err(TransportError::Io)
+    }
+
+    async fn recv(&mut self, buf: &mut [u8], timeout: Duration) -> Result<usize, TransportError> {
+        let mut header = [0u8; TcpAdu::HEADER_SIZE];
+        read_all_async(&mut self.stream, &mut header, timeout).await?;
+
+        if u16::from_be_bytes([header[2], header[3]]) != MODBUS_PROTOCOL_ID {
+            return Err(TransportError::Disconnected);
+        }
+
+        let length = u16::from_be_bytes([header[4], header[5]]) as usize;
+        if length == 0 {
+            return Err(TransportError::Disconnected);
+        }
+        let pdu_len = length - 1;
+        let frame_len = TcpAdu::HEADER_SIZE + pdu_len;
+
+        if buf.len() < frame_len {
+            return Err(TransportError::Disconnected);
+        }
+
+        buf[..TcpAdu::HEADER_SIZE].copy_from_slice(&header);
+        read_all_async(&mut self.stream, &mut buf[TcpAdu::HEADER_SIZE..frame_len], timeout).await?;
+        Ok(frame_len)
+    }
+}
+
+#[cfg(feature = "async")]
+async fn read_all_async<T: AsyncReadExt + Unpin>(
+    stream: &mut T,
+    buf: &mut [u8],
+    timeout: Duration,
+) -> Result<(), TransportError> {
+    let mut pos = 0;
+    while pos < buf.len() {
+        match tokio::time::timeout(timeout, stream.read(&mut buf[pos..])).await {
+            Ok(Ok(0)) => return Err(TransportError::Disconnected),
+            Ok(Ok(n)) => pos += n,
+            Ok(Err(e)) => return Err(TransportError::Io(e)),
+            Err(_) => return Err(TransportError::Timeout),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(all(test, feature = "sync"))]
 mod tests {
     use super::*;
     use crate::tcp::TcpAdu;
@@ -160,5 +254,51 @@ mod tests {
         let decoded = TcpAdu::decode(&buf[..received]).unwrap();
         assert_eq!(decoded, response);
         assert!(!transport.stream().write_buf.is_empty());
+    }
+}
+
+#[cfg(all(test, feature = "async"))]
+mod async_tests {
+    use super::*;
+    use crate::tcp::TcpAdu;
+    use crate::transport::AsyncTransport;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn async_tcp_transport_roundtrip() {
+        let request = TcpAdu::new(0x0001, 0x0A, vec![0x03, 0x00, 0x00, 0x00, 0x0A]);
+        let response = TcpAdu::new(0x0001, 0x0A, vec![0x03, 0x02, 0x00, 0x0A]);
+
+        let mut encoded_request = [0u8; 32];
+        let n = request.encode(&mut encoded_request).unwrap();
+        let mut encoded_response = [0u8; 32];
+        let m = response.encode(&mut encoded_response).unwrap();
+
+        let (client, mut server) = tokio::io::duplex(1024);
+        server.write_all(&encoded_response[..m]).await.unwrap();
+        server.flush().await.unwrap();
+
+        let mut transport = AsyncTcpTransport::new(client);
+        transport.send(&encoded_request[..n]).await.unwrap();
+
+        let mut buf = [0u8; 64];
+        let received = transport
+            .recv(&mut buf, Duration::from_millis(100))
+            .await
+            .unwrap();
+        let decoded = TcpAdu::decode(&buf[..received]).unwrap();
+        assert_eq!(decoded, response);
+    }
+
+    #[tokio::test]
+    async fn async_tcp_transport_recv_times_out_when_no_response() {
+        let (client, _server) = tokio::io::duplex(1024);
+        let mut transport = AsyncTcpTransport::new(client);
+        let mut buf = [0u8; 64];
+        let err = transport
+            .recv(&mut buf, Duration::from_millis(50))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, TransportError::Timeout));
     }
 }

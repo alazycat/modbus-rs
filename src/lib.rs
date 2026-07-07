@@ -7,6 +7,9 @@ pub mod function;
 pub mod function_codes;
 
 pub use error::{DecodeError, EncodeError};
+pub use function_codes::mask_write_register::{
+    MaskWriteRegisterRequest, MaskWriteRegisterResponse,
+};
 pub use function_codes::write_multiple_registers::{
     WriteMultipleRegistersRequest, WriteMultipleRegistersResponse,
 };

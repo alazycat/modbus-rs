@@ -22,6 +22,12 @@ pub mod ascii;
 #[cfg(feature = "tcp")]
 pub mod tcp;
 
+#[cfg(all(feature = "tcp", feature = "sync"))]
+pub mod tcp_transport;
+
+#[cfg(all(feature = "tcp", feature = "sync"))]
+pub mod tcp_client;
+
 #[cfg(feature = "udp")]
 pub mod udp;
 

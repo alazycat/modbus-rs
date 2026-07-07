@@ -4,6 +4,7 @@
 //! features is enabled.
 
 #![cfg(any(feature = "sync", feature = "async"))]
+#![allow(dead_code)]
 
 use modbus::server::MemoryStore;
 

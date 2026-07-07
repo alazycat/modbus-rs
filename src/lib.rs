@@ -10,6 +10,9 @@ pub mod function_codes;
 #[cfg(feature = "rtu")]
 pub mod rtu;
 
+#[cfg(all(feature = "rtu", feature = "sync"))]
+pub mod rtu_transport;
+
 #[cfg(feature = "ascii")]
 pub mod ascii;
 

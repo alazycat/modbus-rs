@@ -16,6 +16,9 @@ pub mod ascii;
 #[cfg(feature = "tcp")]
 pub mod tcp;
 
+#[cfg(feature = "udp")]
+pub mod udp;
+
 pub use error::{DecodeError, EncodeError};
 pub use exception::{ExceptionCode, ExceptionResponse};
 pub use function_codes::encapsulated_interface_transport::{

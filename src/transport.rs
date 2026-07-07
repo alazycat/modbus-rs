@@ -1,6 +1,6 @@
-//! Synchronous transport trait.
+//! Synchronous and asynchronous transport traits.
 
-#![cfg(feature = "sync")]
+#![cfg(any(feature = "sync", feature = "async"))]
 
 use std::fmt;
 use std::time::Duration;
@@ -46,14 +46,32 @@ impl From<std::io::Error> for TransportError {
 /// Implementations are responsible for sending and receiving complete ADU
 /// frames. The `recv` call must return at least one full frame (or an error)
 /// within the supplied timeout.
+#[cfg(feature = "sync")]
 pub trait Transport {
     /// Send a complete frame.
     fn send(&mut self, data: &[u8]) -> Result<(), TransportError>;
+
+    /// Receive a complete frame into `buf`, waiting at most `timeout`.
+    fn recv(&mut self, buf: &mut [u8], timeout: Duration) -> Result<usize, TransportError>;
+}
+
+/// An asynchronous, byte-oriented transport.
+///
+/// Implementations are responsible for sending and receiving complete ADU
+/// frames. The `recv` call must return at least one full frame (or an error)
+/// within the supplied timeout.
+#[cfg(feature = "async")]
+pub trait AsyncTransport {
+    /// Send a complete frame.
+    fn send(
+        &mut self,
+        data: &[u8],
+    ) -> impl std::future::Future<Output = Result<(), TransportError>> + Send;
 
     /// Receive a complete frame into `buf`, waiting at most `timeout`.
     fn recv(
         &mut self,
         buf: &mut [u8],
         timeout: Duration,
-    ) -> Result<usize, TransportError>;
+    ) -> impl std::future::Future<Output = Result<usize, TransportError>> + Send;
 }

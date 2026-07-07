@@ -13,7 +13,7 @@ pub mod helpers;
 #[cfg(any(feature = "rtu", feature = "async"))]
 pub mod rtu;
 
-#[cfg(all(feature = "rtu", feature = "sync"))]
+#[cfg(all(feature = "rtu", any(feature = "sync", feature = "async")))]
 pub mod rtu_transport;
 
 #[cfg(all(feature = "rtu", feature = "sync"))]

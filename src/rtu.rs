@@ -36,6 +36,9 @@ impl RtuAdu {
     /// Minimum frame size: address + function code + 2 CRC bytes.
     pub const MIN_FRAME_SIZE: usize = 4;
 
+    /// Maximum frame size for a Modbus RTU ADU.
+    pub const MAX_FRAME_SIZE: usize = 256;
+
     /// Create a new ADU.
     pub fn new(address: u8, pdu: Vec<u8>) -> Self {
         Self { address, pdu }

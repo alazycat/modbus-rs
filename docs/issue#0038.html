@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0038</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+    code { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 0.75rem; background: #f4f2ef; padding: 0.125rem 0.25rem; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/alazycat/modbus-rs/issues/38">#0038</a> &mdash; Async RTU client/server for coils &amp; registers &mdash; 2026-07-07</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Reused the generic async client/server instead of adding RTU-specific types</h3>
+      <p><strong>Ambiguity:</strong> The issue calls for an "async RTU client/server," but the existing async runtime already defines protocol-agnostic <code>AsyncClient&lt;T&gt;</code> and <code>AsyncServer&lt;D&gt;</code>.</p>
+      <p><strong>Choice:</strong> Added <code>AsyncRtuTransport&lt;T&gt;</code> and the alias <code>AsyncRtuClient&lt;T&gt;</code>; the server side continues to use <code>AsyncServer&lt;D&gt;</code> directly.</p>
+      <p><strong>Rationale:</strong> RTU framing lives in the transport layer. Duplicating client/server logic would add no behavior and would diverge from the TCP/UDP/ASCII pattern. The alias gives users a discoverable name for the client half without inventing a misleading server wrapper.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Async <code>recv</code> uses an overall frame deadline</h3>
+      <p><strong>Ambiguity:</strong> RTU framing is traditionally delimited by inter-frame silence, which could suggest resetting the timeout after every byte.</p>
+      <p><strong>Choice:</strong> The async transport computes one deadline from <code>timeout</code> (<code>tokio::time::timeout_at</code>) and does not refresh it per byte.</p>
+      <p><strong>Rationale:</strong> <code>AsyncTransport::recv</code> is documented to return a complete frame within the supplied timeout. This matches the async TCP and ASCII transports and gives callers a predictable upper bound. Users who need inter-character silence detection can configure that on the underlying stream.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Added a 256-byte cap on RTU frame accumulation</h3>
+      <p><strong>Ambiguity:</strong> The byte-by-byte framing loop could grow its buffer without bound on a stream that never decodes.</p>
+      <p><strong>Choice:</strong> Added <code>RtuAdu::MAX_FRAME_SIZE = 256</code> and enforced it in sync and async <code>RtuTransport</code>, <code>RtuServer</code>, and <code>AsyncServer</code>.</p>
+      <p><strong>Rationale:</strong> A standard Modbus RTU ADU cannot exceed 256 bytes. Capping memory protects against broken or malicious peers and keeps the four RTU frame readers consistent.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Made <code>open_serial_rtu</code> an async function</h3>
+      <p><strong>Ambiguity:</strong> The helper currently contains no <code>.await</code> points.</p>
+      <p><strong>Choice:</strong> Kept it <code>async</code> for symmetry with the other transport helpers and to leave room for async serial-port setup in the future without a breaking change.</p>
+      <p><strong>Rationale:</strong> An async API signals that it is meant for the async runtime, even if the current implementation is synchronous under the hood.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> No dedicated <code>AsyncRtuServer</code> type</h3>
+      <p><strong>Spec said:</strong> "Async RTU client/server" could be read as requiring paired client and server types.</p>
+      <p><strong>Implemented instead:</strong> Only <code>AsyncRtuClient&lt;T&gt;</code> is exposed; servers use the generic <code>AsyncServer&lt;D&gt;</code>. An initial <code>AsyncRtuServer&lt;D&gt;</code> alias was added and then removed because it bound to no RTU-specific behavior and was inconsistent with TCP/UDP/ASCII.</p>
+      <p><strong>Why:</strong> The generic async server already accepts any <code>AsyncTransport</code> via <code>serve_one</code>/<code>serve</code>. A type alias that did not mention <code>AsyncRtuTransport</code> was more confusing than helpful.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Serial helper uses fixed Modbus defaults</h3>
+      <p><strong>Spec said:</strong> "tokio-serial wrapper."</p>
+      <p><strong>Implemented instead:</strong> A single convenience function <code>open_serial_rtu(path, baud_rate)</code> that hard-codes 8 data bits, no parity, 1 stop bit, and a 100 ms timeout.</p>
+      <p><strong>Why:</strong> Those defaults cover the common RTU serial configuration. Users needing custom settings can open a <code>SerialStream</code> themselves and wrap it with <code>AsyncRtuTransport::new</code>.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Byte-by-byte reads vs. vectored reads</h3>
+      <p><strong>Alternatives:</strong> Read large chunks and scan for frame boundaries, or read one byte at a time.</p>
+      <p><strong>Pros/cons:</strong> Chunked reads are faster but require careful buffer management and do not simplify RTU framing much because the valid frame length is unknown until decoded. Byte-by-byte reads are simpler and mirror the sync <code>RtuTransport</code>.</p>
+      <p><strong>Why this won:</strong> Modbus RTU frames are small; simplicity and symmetry with the existing sync transport outweighed the modest throughput gain of chunked reads.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Overall timeout vs. per-byte timeout</h3>
+      <p><strong>Alternatives:</strong> Reset <code>timeout</code> after each received byte (inter-character timeout) or use it as a total frame budget.</p>
+      <p><strong>Pros/cons:</strong> Per-byte reset matches classic RTU silence timers but makes the worst-case receive time unbounded (N × timeout). An overall deadline gives callers a hard bound but can time out a slow valid frame.</p>
+      <p><strong>Why this won:</strong> The <code>AsyncTransport</code> contract specifies a frame-level timeout, and the async TCP/ASCII transports already use that semantics. A hard bound is less surprising for library users.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Should <code>AsyncRtuServer</code> be reintroduced as a newtype?</h3>
+      <p>We removed the alias because it was not type-safe. If discoverability is important, a thin <code>AsyncRtuServer&lt;D&gt;(AsyncServer&lt;D&gt;)</code> newtype with only <code>serve_one</code>/<code>serve</code> forwarding could be added later.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Should <code>open_serial_rtu</code> accept more configuration?</h3>
+      <p>Currently parity, stop bits, and data bits are hard-coded. If users commonly need other settings, consider a builder or accepting a preconfigured <code>tokio_serial::SerialPortBuilder</code>.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Does the overall-frame timeout work for real serial ports?</h3>
+      <p>The timeout bounds the whole <code>recv</code> call. For serial ports that deliver bytes slowly, this may be tighter than an inter-character timeout. Verify against target hardware or add a separate inter-character timeout parameter if needed.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

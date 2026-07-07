@@ -43,6 +43,12 @@ pub mod tcp_server;
 #[cfg(feature = "udp")]
 pub mod udp;
 
+#[cfg(all(feature = "udp", feature = "sync"))]
+pub mod udp_transport;
+
+#[cfg(all(feature = "udp", feature = "sync"))]
+pub mod udp_client;
+
 #[cfg(feature = "sync")]
 pub mod transport;
 

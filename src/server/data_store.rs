@@ -154,6 +154,25 @@ impl DataStore for MemoryStore {
     }
 }
 
+impl MemoryStore {
+    /// Write multiple discrete input values starting at `address`.
+    ///
+    /// Discrete inputs are read-only over the wire; this helper is useful for
+    /// setting up an in-memory store before serving requests.
+    pub fn write_discrete_inputs(
+        &mut self,
+        address: u16,
+        values: &[bool],
+    ) -> Result<(), ExceptionCode> {
+        let end = address as usize + values.len();
+        if end > self.discrete_inputs.len() {
+            return Err(ExceptionCode::IllegalDataAddress);
+        }
+        self.discrete_inputs[address as usize..end].copy_from_slice(values);
+        Ok(())
+    }
+}
+
 fn pack_bits(bits: &[bool]) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(bits.len().div_ceil(8));
     for (i, &bit) in bits.iter().enumerate() {

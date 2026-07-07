@@ -9,6 +9,7 @@ pub mod read_fifo_queue;
 pub mod read_holding_registers;
 pub mod read_input_registers;
 pub mod read_write_multiple_registers;
+pub mod report_server_id;
 pub mod write_multiple_coils;
 pub mod write_multiple_registers;
 pub mod write_single_coil;

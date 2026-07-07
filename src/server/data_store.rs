@@ -7,6 +7,12 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::exception::ExceptionCode;
+use crate::function_codes::read_file_record::{
+    ReadFileRecordSubRequest, ReadFileRecordSubResponse,
+};
+use crate::function_codes::write_file_record::{
+    WriteFileRecordSubRequest, WriteFileRecordSubResponse,
+};
 
 /// A Modbus data store.
 ///
@@ -81,6 +87,36 @@ pub trait DataStore {
     fn read_fifo_queue(&self, _fifo_pointer_address: u16) -> Result<(u16, Vec<u8>), ExceptionCode> {
         Err(ExceptionCode::IllegalFunction)
     }
+
+    /// Read file records for FC 0x14.
+    fn read_file_record(
+        &self,
+        sub_requests: &[ReadFileRecordSubRequest],
+    ) -> Result<Vec<ReadFileRecordSubResponse>, ExceptionCode> {
+        let _ = sub_requests;
+        Err(ExceptionCode::IllegalFunction)
+    }
+
+    /// Write file records for FC 0x15 and echo the written sub-records.
+    fn write_file_record(
+        &mut self,
+        sub_requests: &[WriteFileRecordSubRequest],
+    ) -> Result<Vec<WriteFileRecordSubResponse>, ExceptionCode> {
+        let _ = sub_requests;
+        Err(ExceptionCode::IllegalFunction)
+    }
+
+    /// Handle FC 0x2B Encapsulated Interface Transport and return the echoed
+    /// `(mei_type, data)` pair.
+    fn encapsulated_interface_transport(
+        &self,
+        mei_type: u8,
+        data: &[u8],
+    ) -> Result<(u8, Vec<u8>), ExceptionCode> {
+        let _ = mei_type;
+        let _ = data;
+        Err(ExceptionCode::IllegalFunction)
+    }
 }
 
 /// A simple in-memory [`DataStore`].
@@ -95,6 +131,7 @@ pub struct MemoryStore {
     comm_event_log: (u16, u16, u16, Vec<u8>),
     server_id: Vec<u8>,
     fifo_queue: (u16, Vec<u8>),
+    file_records: Vec<((u16, u16), Vec<u8>)>,
 }
 
 impl MemoryStore {
@@ -115,6 +152,7 @@ impl MemoryStore {
             comm_event_log: (0, 0, 0, vec![]),
             server_id: vec![],
             fifo_queue: (0, vec![]),
+            file_records: vec![],
         }
     }
 }
@@ -225,6 +263,56 @@ impl DataStore for MemoryStore {
         let (count, values) = &self.fifo_queue;
         Ok((*count, values.clone()))
     }
+
+    fn read_file_record(
+        &self,
+        sub_requests: &[ReadFileRecordSubRequest],
+    ) -> Result<Vec<ReadFileRecordSubResponse>, ExceptionCode> {
+        let mut responses = Vec::with_capacity(sub_requests.len());
+        for sub in sub_requests {
+            let key = (sub.file_number, sub.record_number);
+            let data = self
+                .file_records
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, v)| v.clone())
+                .ok_or(ExceptionCode::IllegalDataAddress)?;
+            if data.len() != sub.record_length as usize * 2 {
+                return Err(ExceptionCode::IllegalDataAddress);
+            }
+            responses.push(ReadFileRecordSubResponse::new(data));
+        }
+        Ok(responses)
+    }
+
+    fn write_file_record(
+        &mut self,
+        sub_requests: &[WriteFileRecordSubRequest],
+    ) -> Result<Vec<WriteFileRecordSubResponse>, ExceptionCode> {
+        let mut responses = Vec::with_capacity(sub_requests.len());
+        for sub in sub_requests {
+            let key = (sub.file_number, sub.record_number);
+            if let Some(pos) = self.file_records.iter().position(|(k, _)| *k == key) {
+                self.file_records[pos].1 = sub.record_data.clone();
+            } else {
+                self.file_records.push((key, sub.record_data.clone()));
+            }
+            responses.push(WriteFileRecordSubResponse::new(
+                sub.file_number,
+                sub.record_number,
+                sub.record_data.clone(),
+            ));
+        }
+        Ok(responses)
+    }
+
+    fn encapsulated_interface_transport(
+        &self,
+        mei_type: u8,
+        data: &[u8],
+    ) -> Result<(u8, Vec<u8>), ExceptionCode> {
+        Ok((mei_type, data.to_vec()))
+    }
 }
 
 impl MemoryStore {
@@ -274,6 +362,22 @@ impl MemoryStore {
     /// Set the data returned by FC 0x18 Read FIFO Queue.
     pub fn set_fifo_queue(&mut self, fifo_count: u16, register_values: Vec<u8>) {
         self.fifo_queue = (fifo_count, register_values);
+    }
+
+    /// Set the data returned by FC 0x14 Read File Record for a given file and
+    /// record number.
+    pub fn set_file_record(
+        &mut self,
+        file_number: u16,
+        record_number: u16,
+        data: Vec<u8>,
+    ) {
+        let key = (file_number, record_number);
+        if let Some(pos) = self.file_records.iter().position(|(k, _)| *k == key) {
+            self.file_records[pos].1 = data;
+        } else {
+            self.file_records.push((key, data));
+        }
     }
 }
 

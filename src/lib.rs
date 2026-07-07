@@ -7,6 +7,9 @@ pub mod function;
 pub mod function_codes;
 
 pub use error::{DecodeError, EncodeError};
+pub use function_codes::diagnostics::{
+    DiagnosticsRequest, DiagnosticsResponse,
+};
 pub use function_codes::read_exception_status::{
     ReadExceptionStatusRequest, ReadExceptionStatusResponse,
 };

@@ -1,0 +1,20 @@
+/// Modbus function code constants.
+pub const READ_COILS: u8 = 0x01;
+pub const READ_DISCRETE_INPUTS: u8 = 0x02;
+pub const READ_HOLDING_REGISTERS: u8 = 0x03;
+pub const READ_INPUT_REGISTERS: u8 = 0x04;
+pub const WRITE_SINGLE_COIL: u8 = 0x05;
+pub const WRITE_SINGLE_REGISTER: u8 = 0x06;
+pub const READ_EXCEPTION_STATUS: u8 = 0x07;
+pub const DIAGNOSTICS: u8 = 0x08;
+pub const GET_COMM_EVENT_COUNTER: u8 = 0x0B;
+pub const GET_COMM_EVENT_LOG: u8 = 0x0C;
+pub const WRITE_MULTIPLE_COILS: u8 = 0x0F;
+pub const WRITE_MULTIPLE_REGISTERS: u8 = 0x10;
+pub const REPORT_SERVER_ID: u8 = 0x11;
+pub const READ_FILE_RECORD: u8 = 0x14;
+pub const WRITE_FILE_RECORD: u8 = 0x15;
+pub const MASK_WRITE_REGISTER: u8 = 0x16;
+pub const READ_WRITE_MULTIPLE_REGISTERS: u8 = 0x17;
+pub const READ_FIFO_QUEUE: u8 = 0x18;
+pub const ENCAPSULATED_INTERFACE_TRANSPORT: u8 = 0x2B;

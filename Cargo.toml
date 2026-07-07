@@ -1,0 +1,28 @@
+[package]
+name = "modbus"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["std"]
+std = []
+rtu = []
+ascii = []
+tcp = []
+udp = []
+sync = ["std"]
+async = ["std", "dep:tokio"]
+serial = ["async", "dep:tokio-serial"]
+helpers = []
+cli = ["std", "async", "tcp", "rtu", "dep:clap", "dep:tracing"]
+loopback-tests = ["rtu", "ascii", "serial"]
+
+[dependencies]
+tokio = { version = "1", features = ["net", "rt", "io-util", "time"], optional = true }
+tokio-serial = { version = "5", optional = true }
+clap = { version = "4", features = ["derive"], optional = true }
+tracing = { version = "0.1", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-test = "0.4"

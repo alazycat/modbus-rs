@@ -34,13 +34,13 @@ pub mod ascii_server;
 #[cfg(feature = "tcp")]
 pub mod tcp;
 
-#[cfg(all(feature = "tcp", feature = "sync"))]
+#[cfg(all(feature = "tcp", any(feature = "sync", feature = "async")))]
 pub mod tcp_transport;
 
-#[cfg(all(feature = "tcp", feature = "sync"))]
+#[cfg(all(feature = "tcp", any(feature = "sync", feature = "async")))]
 pub mod tcp_client;
 
-#[cfg(all(feature = "tcp", feature = "sync"))]
+#[cfg(all(feature = "tcp", any(feature = "sync", feature = "async")))]
 pub mod tcp_server;
 
 #[cfg(feature = "udp")]

@@ -1,17 +1,21 @@
-//! Synchronous TCP server listener.
+//! Synchronous and asynchronous TCP Modbus server listener.
 //!
-//! This module is available when both the `tcp` and `sync` features are
-//! enabled. It wraps a [`Server`](crate::server::Server) and the TCP MBAP
-//! framer so that request/response ADUs can be served over any [`Read`] +
-//! [`Write`] stream.
+//! This module is available when the `tcp` feature and at least one of the
+//! `sync` or `async` runtime features are enabled. It wraps a
+//! [`Server`](crate::server::Server) and the TCP MBAP framer so that
+//! request/response ADUs can be served over any byte stream.
 
-#![cfg(all(feature = "tcp", feature = "sync"))]
-
-use std::io::{self, Read, Write};
+#![cfg(all(feature = "tcp", any(feature = "sync", feature = "async")))]
 
 use crate::error::{DecodeError, EncodeError};
 use crate::server::{DataStore, Server};
 use crate::tcp::TcpAdu;
+
+#[cfg(feature = "sync")]
+use std::io::{self, Read, Write};
+
+#[cfg(feature = "async")]
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Errors that can occur while running the TCP server.
 #[derive(Debug)]
@@ -66,6 +70,7 @@ impl From<DecodeError> for TcpServerError {
     }
 }
 
+#[cfg(feature = "sync")]
 /// A synchronous TCP Modbus server.
 ///
 /// The server listens on a byte stream, decodes TCP ADUs, dispatches the
@@ -76,6 +81,7 @@ pub struct TcpServer<D: DataStore> {
     server: Server<D>,
 }
 
+#[cfg(feature = "sync")]
 impl<D: DataStore> TcpServer<D> {
     /// Create a new TCP server backed by `store`.
     pub fn new(store: D) -> Self {
@@ -160,6 +166,7 @@ impl<D: DataStore> TcpServer<D> {
     }
 }
 
+#[cfg(feature = "sync")]
 fn read_all<T: Read>(stream: &mut T, buf: &mut [u8]) -> Result<(), TcpServerError> {
     let mut pos = 0;
     while pos < buf.len() {
@@ -178,7 +185,7 @@ fn read_all<T: Read>(stream: &mut T, buf: &mut [u8]) -> Result<(), TcpServerErro
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sync"))]
 mod tests {
     use super::*;
     use crate::server::{DataStore, MemoryStore};
@@ -324,5 +331,286 @@ mod tests {
         assert_eq!(stream.write_buf.len(), expected.len() + expected2.len());
         assert_eq!(&stream.write_buf[..expected.len()], expected.as_slice());
         assert_eq!(&stream.write_buf[expected.len()..], expected2.as_slice());
+    }
+}
+
+/// An asynchronous TCP Modbus server.
+///
+/// The server listens on an async byte stream, decodes TCP ADUs, dispatches the
+/// contained PDU to a [`DataStore`], and encodes the response back into a TCP
+/// ADU. Requests with a non-matching unit ID are ignored.
+#[cfg(feature = "async")]
+#[derive(Debug)]
+pub struct AsyncTcpServer<D: DataStore> {
+    server: Server<D>,
+}
+
+#[cfg(feature = "async")]
+impl<D: DataStore> AsyncTcpServer<D> {
+    /// Create a new async TCP server backed by `store`.
+    pub fn new(store: D) -> Self {
+        Self {
+            server: Server::new(store),
+        }
+    }
+
+    /// Return an immutable reference to the inner [`Server`].
+    pub fn server(&self) -> &Server<D> {
+        &self.server
+    }
+
+    /// Return a mutable reference to the inner [`Server`].
+    pub fn server_mut(&mut self) -> &mut Server<D> {
+        &mut self.server
+    }
+
+    /// Serve a single request/response exchange on `stream`.
+    ///
+    /// Returns `Some(n)` if a response ADU of `n` bytes was written back to
+    /// the stream, or `None` if the request was filtered out because its unit
+    /// ID did not match `unit_id`.
+    pub async fn serve_one<S>(
+        &mut self,
+        stream: &mut S,
+        unit_id: u8,
+    ) -> Result<Option<usize>, TcpServerError>
+    where
+        S: AsyncReadExt + AsyncWriteExt + Unpin,
+    {
+        let request = self.read_adu(stream).await?;
+
+        if request.unit_id != unit_id {
+            return Ok(None);
+        }
+
+        let mut pdu_response = [0u8; 512];
+        let n = self.server.dispatch(&request.pdu, &mut pdu_response)?;
+
+        let response = TcpAdu::new(
+            request.transaction_id,
+            request.unit_id,
+            pdu_response[..n].to_vec(),
+        );
+        let mut tx = [0u8; 512];
+        let m = response.encode(&mut tx)?;
+        stream.write_all(&tx[..m]).await?;
+        stream.flush().await?;
+        Ok(Some(m))
+    }
+
+    /// Continuously serve requests on `stream`.
+    ///
+    /// The function returns when the stream is disconnected or reaches EOF.
+    pub async fn serve<S>(
+        &mut self,
+        stream: &mut S,
+        unit_id: u8,
+    ) -> Result<(), TcpServerError>
+    where
+        S: AsyncReadExt + AsyncWriteExt + Unpin,
+    {
+        loop {
+            match self.serve_one(stream, unit_id).await {
+                Ok(_) => {}
+                Err(TcpServerError::Disconnected) => return Ok(()),
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    async fn read_adu<S>(&mut self, stream: &mut S) -> Result<TcpAdu, TcpServerError>
+    where
+        S: AsyncReadExt + Unpin,
+    {
+        let mut header = [0u8; TcpAdu::HEADER_SIZE];
+        read_all_async(stream, &mut header).await?;
+
+        let length = u16::from_be_bytes([header[4], header[5]]) as usize;
+        if length == 0 {
+            return Err(TcpServerError::Decode(DecodeError::InvalidValue));
+        }
+        let pdu_len = length - 1;
+
+        let mut frame = vec![0u8; TcpAdu::HEADER_SIZE + pdu_len];
+        frame[..TcpAdu::HEADER_SIZE].copy_from_slice(&header);
+        read_all_async(stream, &mut frame[TcpAdu::HEADER_SIZE..]).await?;
+
+        TcpAdu::decode(&frame).map_err(TcpServerError::Decode)
+    }
+}
+
+#[cfg(feature = "async")]
+async fn read_all_async<S>(stream: &mut S, buf: &mut [u8]) -> Result<(), TcpServerError>
+where
+    S: AsyncReadExt + Unpin,
+{
+    let mut pos = 0;
+    while pos < buf.len() {
+        match stream.read(&mut buf[pos..]).await {
+            Ok(0) => return Err(TcpServerError::Disconnected),
+            Ok(n) => pos += n,
+            Err(e) => return Err(TcpServerError::Io(e)),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(all(test, feature = "async"))]
+mod async_tests {
+    use super::*;
+    use crate::server::{DataStore, MemoryStore};
+    use crate::tcp::TcpAdu;
+
+    fn make_read_coils_adu(
+        unit_id: u8,
+        transaction_id: u16,
+        address: u16,
+        quantity: u16,
+    ) -> Vec<u8> {
+        use crate::function_codes::read_coils::ReadCoilsRequest;
+        let req = ReadCoilsRequest::new(address, quantity).unwrap();
+        let mut pdu = [0u8; 5];
+        let n = req.encode(&mut pdu).unwrap();
+        let mut adu = [0u8; 32];
+        let m = TcpAdu::new(transaction_id, unit_id, pdu[..n].to_vec())
+            .encode(&mut adu)
+            .unwrap();
+        adu[..m].to_vec()
+    }
+
+    fn make_read_coils_response_adu(
+        unit_id: u8,
+        transaction_id: u16,
+        coil_status: Vec<u8>,
+    ) -> Vec<u8> {
+        use crate::function_codes::read_coils::ReadCoilsResponse;
+        let resp = ReadCoilsResponse { coil_status };
+        let mut pdu = [0u8; 256];
+        let n = resp.encode(&mut pdu).unwrap();
+        let mut adu = [0u8; 512];
+        let m = TcpAdu::new(transaction_id, unit_id, pdu[..n].to_vec())
+            .encode(&mut adu)
+            .unwrap();
+        adu[..m].to_vec()
+    }
+
+    #[tokio::test]
+    async fn serve_one_responds_to_matching_unit_id() {
+        let mut store = MemoryStore::new(16, 0, 0, 0);
+        store.write_coils(0, &[true, false, true, true]).unwrap();
+
+        let mut server = AsyncTcpServer::new(store);
+        let request = make_read_coils_adu(0x0A, 0x0001, 0, 8);
+        let (mut client, mut server_stream) = tokio::io::duplex(1024);
+        client.write_all(&request).await.unwrap();
+        client.flush().await.unwrap();
+
+        let n = server
+            .serve_one(&mut server_stream, 0x0A)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(n > 0);
+
+        let mut rx = vec![0u8; n];
+        client.read_exact(&mut rx).await.unwrap();
+        client.shutdown().await.unwrap();
+        let response = TcpAdu::decode(&rx).unwrap();
+        assert_eq!(response.unit_id, 0x0A);
+        assert_eq!(response.transaction_id, 0x0001);
+        assert_eq!(response.pdu, vec![0x01, 0x01, 0b00001101]);
+    }
+
+    #[tokio::test]
+    async fn serve_one_ignores_non_matching_unit_id() {
+        let store = MemoryStore::new(16, 0, 0, 0);
+        let mut server = AsyncTcpServer::new(store);
+        let request = make_read_coils_adu(0x02, 0x0001, 0, 8);
+        let (mut client, mut server_stream) = tokio::io::duplex(1024);
+        client.write_all(&request).await.unwrap();
+        client.shutdown().await.unwrap();
+
+        let result = server.serve_one(&mut server_stream, 0x0A).await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn serve_one_returns_decode_error_for_zero_length() {
+        let store = MemoryStore::new(0, 0, 0, 0);
+        let mut server = AsyncTcpServer::new(store);
+
+        // MBAP header with a zero length field is malformed.
+        let mut frame = [0u8; TcpAdu::HEADER_SIZE];
+        frame[0..2].copy_from_slice(&0x0001u16.to_be_bytes());
+        frame[2..4].copy_from_slice(&crate::tcp::MODBUS_PROTOCOL_ID.to_be_bytes());
+        frame[6] = 0x0A;
+        let (mut client, mut server_stream) = tokio::io::duplex(1024);
+        client.write_all(&frame).await.unwrap();
+        client.shutdown().await.unwrap();
+
+        let err = server.serve_one(&mut server_stream, 0x0A).await.unwrap_err();
+        assert!(matches!(
+            err,
+            TcpServerError::Decode(DecodeError::InvalidValue)
+        ));
+    }
+
+    #[tokio::test]
+    async fn serve_loops_until_eof() {
+        let mut store = MemoryStore::new(16, 0, 0, 0);
+        store.write_coils(0, &[true, false, true, true]).unwrap();
+
+        let mut server = AsyncTcpServer::new(store);
+        let mut input = make_read_coils_adu(0x0A, 0x1234, 0, 8);
+        input.extend_from_slice(&make_read_coils_adu(0x0A, 0x1235, 0, 8));
+
+        let (mut client, mut server_stream) = tokio::io::duplex(1024);
+        client.write_all(&input).await.unwrap();
+        client.flush().await.unwrap();
+        client.shutdown().await.unwrap();
+
+        server.serve(&mut server_stream, 0x0A).await.unwrap();
+
+        let expected = make_read_coils_response_adu(0x0A, 0x1234, vec![0b00001101]);
+        let expected2 = make_read_coils_response_adu(0x0A, 0x1235, vec![0b00001101]);
+
+        let mut rx = vec![0u8; expected.len() + expected2.len()];
+        client.read_exact(&mut rx).await.unwrap();
+        assert_eq!(&rx[..expected.len()], expected.as_slice());
+        assert_eq!(&rx[expected.len()..], expected2.as_slice());
+    }
+
+    #[tokio::test]
+    async fn serve_spawns_task_per_connection() {
+        let mut store = MemoryStore::new(16, 0, 0, 0);
+        store.write_coils(0, &[true, false, true, true]).unwrap();
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server_handle = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut server = AsyncTcpServer::new(store);
+            server.serve(&mut stream, 0x07).await.unwrap();
+        });
+
+        let client_handle = tokio::spawn(async move {
+            let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+            let request = make_read_coils_adu(0x07, 0x0001, 0, 8);
+            stream.write_all(&request).await.unwrap();
+            stream.flush().await.unwrap();
+
+            let mut rx = [0u8; 512];
+            let n = stream.read(&mut rx).await.unwrap();
+            assert!(n > 0);
+            let response = TcpAdu::decode(&rx[..n]).unwrap();
+            assert_eq!(response.unit_id, 0x07);
+            assert_eq!(response.pdu, vec![0x01, 0x01, 0b00001101]);
+
+            stream.shutdown().await.unwrap();
+        });
+
+        client_handle.await.unwrap();
+        server_handle.await.unwrap();
     }
 }

@@ -3,10 +3,12 @@
 extern crate alloc;
 
 pub mod error;
+pub mod exception;
 pub mod function;
 pub mod function_codes;
 
 pub use error::{DecodeError, EncodeError};
+pub use exception::{ExceptionCode, ExceptionResponse};
 pub use function_codes::encapsulated_interface_transport::{
     EncapsulatedInterfaceTransportRequest, EncapsulatedInterfaceTransportResponse,
     MEI_TYPE_CANOPEN_GENERAL_REFERENCE, MEI_TYPE_READ_DEVICE_IDENTIFICATION,

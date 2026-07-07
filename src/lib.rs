@@ -28,6 +28,9 @@ pub mod tcp_transport;
 #[cfg(all(feature = "tcp", feature = "sync"))]
 pub mod tcp_client;
 
+#[cfg(all(feature = "tcp", feature = "sync"))]
+pub mod tcp_server;
+
 #[cfg(feature = "udp")]
 pub mod udp;
 

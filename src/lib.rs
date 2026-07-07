@@ -22,13 +22,13 @@ pub mod rtu_server;
 #[cfg(feature = "ascii")]
 pub mod ascii;
 
-#[cfg(all(feature = "ascii", feature = "sync"))]
+#[cfg(all(feature = "ascii", any(feature = "sync", feature = "async")))]
 pub mod ascii_transport;
 
-#[cfg(all(feature = "ascii", feature = "sync"))]
+#[cfg(all(feature = "ascii", any(feature = "sync", feature = "async")))]
 pub mod ascii_client;
 
-#[cfg(all(feature = "ascii", feature = "sync"))]
+#[cfg(all(feature = "ascii", any(feature = "sync", feature = "async")))]
 pub mod ascii_server;
 
 #[cfg(feature = "tcp")]

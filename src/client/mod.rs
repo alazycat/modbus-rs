@@ -20,8 +20,14 @@ pub use sync::Client;
 #[cfg(feature = "async")]
 pub use r#async::AsyncClient;
 
-#[cfg(feature = "ascii")]
-pub use crate::ascii_client::{AsciiClient, AsciiClientConfig, AsciiClientError};
+#[cfg(all(feature = "ascii", any(feature = "sync", feature = "async")))]
+pub use crate::ascii_client::{AsciiClientConfig, AsciiClientError};
+
+#[cfg(all(feature = "ascii", feature = "sync"))]
+pub use crate::ascii_client::AsciiClient;
+
+#[cfg(all(feature = "ascii", feature = "async"))]
+pub use crate::ascii_client::AsyncAsciiClient;
 
 #[cfg(feature = "udp")]
 pub use crate::udp_client::{UdpClient, UdpClientConfig, UdpClientError};

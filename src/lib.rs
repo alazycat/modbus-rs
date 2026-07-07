@@ -7,6 +7,9 @@ pub mod function;
 pub mod function_codes;
 
 pub use error::{DecodeError, EncodeError};
+pub use function_codes::write_single_register::{
+    WriteSingleRegisterRequest, WriteSingleRegisterResponse,
+};
 pub use function_codes::read_input_registers::{
     ReadInputRegistersRequest, ReadInputRegistersResponse,
 };

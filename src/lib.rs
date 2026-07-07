@@ -7,6 +7,9 @@ pub mod function;
 pub mod function_codes;
 
 pub use error::{DecodeError, EncodeError};
+pub use function_codes::report_server_id::{
+    ReportServerIdRequest, ReportServerIdResponse,
+};
 pub use function_codes::get_comm_event_log::{
     GetCommEventLogRequest, GetCommEventLogResponse,
 };

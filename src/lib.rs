@@ -6,6 +6,7 @@ pub mod error;
 pub mod exception;
 pub mod function;
 pub mod function_codes;
+pub mod macros;
 
 #[cfg(feature = "helpers")]
 pub mod helpers;

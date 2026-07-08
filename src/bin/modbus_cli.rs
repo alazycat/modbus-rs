@@ -431,7 +431,7 @@ where
         address: u16,
         quantity: u16,
     ) -> Result<Vec<u8>, modbus::tcp_client::TcpClientError> {
-        AsyncTcpClient::read_coils(self, unit_id, address, quantity).await
+        (**self).read_coils(unit_id, address, quantity).await
     }
     async fn read_holding_registers(
         &mut self,
@@ -439,7 +439,7 @@ where
         address: u16,
         quantity: u16,
     ) -> Result<Vec<u8>, modbus::tcp_client::TcpClientError> {
-        AsyncTcpClient::read_holding_registers(self, unit_id, address, quantity).await
+        (**self).read_holding_registers(unit_id, address, quantity).await
     }
     async fn write_coil(
         &mut self,
@@ -447,7 +447,7 @@ where
         address: u16,
         value: bool,
     ) -> Result<(), modbus::tcp_client::TcpClientError> {
-        AsyncTcpClient::write_coil(self, unit_id, address, value).await
+        (**self).write_coil(unit_id, address, value).await
     }
     async fn write_register(
         &mut self,
@@ -455,7 +455,7 @@ where
         address: u16,
         value: u16,
     ) -> Result<(), modbus::tcp_client::TcpClientError> {
-        AsyncTcpClient::write_register(self, unit_id, address, value).await
+        (**self).write_register(unit_id, address, value).await
     }
 }
 
@@ -469,7 +469,7 @@ where
         address: u16,
         quantity: u16,
     ) -> Result<Vec<u8>, modbus::client::ClientError> {
-        AsyncClient::read_coils(self, unit_id, address, quantity).await
+        (**self).read_coils(unit_id, address, quantity).await
     }
     async fn read_holding_registers(
         &mut self,
@@ -477,7 +477,7 @@ where
         address: u16,
         quantity: u16,
     ) -> Result<Vec<u8>, modbus::client::ClientError> {
-        AsyncClient::read_holding_registers(self, unit_id, address, quantity).await
+        (**self).read_holding_registers(unit_id, address, quantity).await
     }
     async fn write_coil(
         &mut self,
@@ -485,7 +485,7 @@ where
         address: u16,
         value: bool,
     ) -> Result<(), modbus::client::ClientError> {
-        AsyncClient::write_coil(self, unit_id, address, value).await
+        (**self).write_coil(unit_id, address, value).await
     }
     async fn write_register(
         &mut self,
@@ -493,7 +493,7 @@ where
         address: u16,
         value: u16,
     ) -> Result<(), modbus::client::ClientError> {
-        AsyncClient::write_register(self, unit_id, address, value).await
+        (**self).write_register(unit_id, address, value).await
     }
 }
 

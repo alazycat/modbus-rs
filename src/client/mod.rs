@@ -31,6 +31,9 @@ pub use rtu_adapter::RtuAduAdapter;
 #[cfg(all(feature = "async", any(feature = "rtu", feature = "async")))]
 pub use rtu_adapter::AsyncRtuAduAdapter;
 
+#[cfg(any(feature = "sync", feature = "async"))]
+pub mod retry_adapter;
+
 #[cfg(all(feature = "ascii", any(feature = "sync", feature = "async")))]
 pub use crate::ascii_client::{AsciiClientConfig, AsciiClientError};
 
@@ -70,6 +73,35 @@ impl Default for ClientConfig {
             endian: Endian::Big,
             #[cfg(feature = "helpers")]
             word_order: WordOrder::MostSignificantFirst,
+        }
+    }
+}
+
+/// Policy controlling retry behavior for reconnecting adapters.
+#[derive(Debug, Clone, Copy)]
+pub struct RetryPolicy {
+    /// Maximum number of retry attempts before giving up.
+    pub max_retries: u32,
+    /// Initial delay before the first retry.
+    pub initial_backoff: Duration,
+    /// Maximum delay between retries.
+    pub max_backoff: Duration,
+    /// Predicate that decides whether an error is worth retrying.
+    pub retryable: fn(&ClientError) -> bool,
+}
+
+/// Default retry predicate: treat transport disconnects as retryable.
+pub fn default_retryable(err: &ClientError) -> bool {
+    matches!(err, ClientError::Transport(TransportError::Disconnected))
+}
+
+impl Default for RetryPolicy {
+    fn default() -> Self {
+        Self {
+            max_retries: 3,
+            initial_backoff: Duration::from_millis(100),
+            max_backoff: Duration::from_secs(5),
+            retryable: default_retryable,
         }
     }
 }

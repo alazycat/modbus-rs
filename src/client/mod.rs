@@ -14,11 +14,20 @@ pub mod sync;
 #[cfg(feature = "async")]
 pub mod r#async;
 
+#[cfg(any(feature = "rtu", feature = "async"))]
+pub mod rtu_adapter;
+
 #[cfg(feature = "sync")]
-pub use sync::Client;
+pub use sync::{Client, ClientCore};
 
 #[cfg(feature = "async")]
-pub use r#async::AsyncClient;
+pub use r#async::{AsyncClient, AsyncClientCore};
+
+#[cfg(all(feature = "sync", any(feature = "rtu", feature = "async")))]
+pub use rtu_adapter::RtuAduAdapter;
+
+#[cfg(all(feature = "async", any(feature = "rtu", feature = "async")))]
+pub use rtu_adapter::AsyncRtuAduAdapter;
 
 #[cfg(all(feature = "ascii", any(feature = "sync", feature = "async")))]
 pub use crate::ascii_client::{AsciiClientConfig, AsciiClientError};
@@ -99,6 +108,28 @@ impl From<TransportError> for ClientError {
             other => Self::Transport(other),
         }
     }
+}
+
+/// Seam for synchronous ADU framing and I/O.
+#[cfg(feature = "sync")]
+pub trait AduAdapter {
+    /// Send `request_pdu` to `unit_id` and return the response PDU.
+    fn send_receive(
+        &mut self,
+        unit_id: u8,
+        request_pdu: &[u8],
+    ) -> Result<alloc::vec::Vec<u8>, ClientError>;
+}
+
+/// Seam for asynchronous ADU framing and I/O.
+#[cfg(feature = "async")]
+pub trait AsyncAduAdapter {
+    /// Send `request_pdu` to `unit_id` and return the response PDU.
+    async fn send_receive(
+        &mut self,
+        unit_id: u8,
+        request_pdu: &[u8],
+    ) -> Result<alloc::vec::Vec<u8>, ClientError>;
 }
 
 pub(crate) fn pack_bits(bits: &[bool]) -> alloc::vec::Vec<u8> {

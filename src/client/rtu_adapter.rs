@@ -10,13 +10,15 @@ use alloc::vec::Vec;
 use crate::rtu::RtuAdu;
 use crate::transport::TransportError;
 
+use super::{ClientConfig, ClientError};
+
 #[cfg(feature = "sync")]
-use super::{AduAdapter, ClientConfig, ClientError};
+use super::AduAdapter;
 #[cfg(feature = "sync")]
 use crate::transport::Transport;
 
 #[cfg(feature = "async")]
-use super::{AsyncAduAdapter, ClientConfig, ClientError};
+use super::AsyncAduAdapter;
 #[cfg(feature = "async")]
 use crate::transport::AsyncTransport;
 

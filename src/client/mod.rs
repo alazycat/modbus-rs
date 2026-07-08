@@ -110,6 +110,30 @@ impl From<TransportError> for ClientError {
     }
 }
 
+/// Validate that `response_pdu` echoes the requested function code.
+///
+/// If the response begins with the request function code combined with the
+/// exception flag, it is decoded as an [`ExceptionResponse`] and returned as
+/// [`ClientError::Exception`]. A mismatching or empty response yields
+/// [`ClientError::InvalidResponse`].
+pub(crate) fn validate_response_function(
+    request_function: u8,
+    response_pdu: &[u8],
+) -> Result<(), ClientError> {
+    if response_pdu.is_empty() {
+        return Err(ClientError::InvalidResponse);
+    }
+    let response_function = response_pdu[0];
+    if response_function == request_function | ExceptionResponse::EXCEPTION_FLAG {
+        let exc = ExceptionResponse::decode(response_pdu).map_err(ClientError::Decode)?;
+        return Err(ClientError::Exception(exc));
+    }
+    if response_function != request_function {
+        return Err(ClientError::InvalidResponse);
+    }
+    Ok(())
+}
+
 /// Seam for synchronous ADU framing and I/O.
 #[cfg(feature = "sync")]
 pub trait AduAdapter {

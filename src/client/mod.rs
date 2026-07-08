@@ -6,6 +6,8 @@ use core::time::Duration;
 
 use crate::error::{DecodeError, EncodeError};
 use crate::exception::ExceptionResponse;
+#[cfg(feature = "helpers")]
+use crate::helpers::{Endian, WordOrder};
 use crate::transport::TransportError;
 
 #[cfg(feature = "sync")]
@@ -52,12 +54,22 @@ pub use crate::udp_client::AsyncUdpClient;
 pub struct ClientConfig {
     /// Maximum time to wait for a response.
     pub timeout: Duration,
+    /// Byte order used by typed register helpers.
+    #[cfg(feature = "helpers")]
+    pub endian: Endian,
+    /// Word order used by multi-register typed helpers.
+    #[cfg(feature = "helpers")]
+    pub word_order: WordOrder,
 }
 
 impl Default for ClientConfig {
     fn default() -> Self {
         Self {
             timeout: Duration::from_secs(5),
+            #[cfg(feature = "helpers")]
+            endian: Endian::Big,
+            #[cfg(feature = "helpers")]
+            word_order: WordOrder::MostSignificantFirst,
         }
     }
 }
@@ -77,6 +89,9 @@ pub enum ClientError {
     InvalidResponse,
     /// The server returned an exception response.
     Exception(ExceptionResponse),
+    /// A TLS handshake or certificate error.
+    #[cfg(feature = "tls")]
+    Tls(String),
 }
 
 impl core::fmt::Display for ClientError {
@@ -88,6 +103,8 @@ impl core::fmt::Display for ClientError {
             Self::Timeout => write!(f, "client timeout"),
             Self::InvalidResponse => write!(f, "invalid response"),
             Self::Exception(e) => write!(f, "server exception: {e:?}"),
+            #[cfg(feature = "tls")]
+            Self::Tls(e) => write!(f, "TLS error: {e}"),
         }
     }
 }
@@ -106,6 +123,16 @@ impl From<TransportError> for ClientError {
         match e {
             TransportError::Timeout => Self::Timeout,
             other => Self::Transport(other),
+        }
+    }
+}
+
+#[cfg(feature = "helpers")]
+impl From<crate::helpers::HelpersError> for ClientError {
+    fn from(e: crate::helpers::HelpersError) -> Self {
+        match e {
+            crate::helpers::HelpersError::InvalidLength => Self::Decode(DecodeError::InvalidLength),
+            crate::helpers::HelpersError::InvalidString => Self::Decode(DecodeError::InvalidValue),
         }
     }
 }

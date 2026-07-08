@@ -149,6 +149,24 @@ impl<D: DataStore> AsciiServer<D> {
         }
     }
 
+    /// Open a local serial port and continuously serve ASCII requests on it.
+    ///
+    /// `path` is the platform-specific serial device name (e.g. `/dev/ttyUSB0`
+    /// on Linux or `COM3` on Windows). The port is configured for 8 data bits,
+    /// no parity, 1 stop bit, and a 100 ms read timeout. The function returns
+    /// when the serial port is disconnected or an unrecoverable error occurs.
+    #[cfg(feature = "sync-serial")]
+    pub fn serve_serial(
+        &mut self,
+        path: impl AsRef<std::path::Path>,
+        baud_rate: u32,
+        server_address: u8,
+    ) -> Result<(), AsciiServerError> {
+        let mut serial = crate::serial_transport::open_serial_port(path, baud_rate)
+            .map_err(|e| AsciiServerError::Io(e.into()))?;
+        self.serve(&mut serial, server_address)
+    }
+
     fn read_adu<T: Read>(&mut self, stream: &mut T) -> Result<AsciiAdu, AsciiServerError> {
         let mut frame = Vec::new();
         let mut byte = [0u8; 1];

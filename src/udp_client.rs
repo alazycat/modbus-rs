@@ -52,9 +52,10 @@ impl<T: Transport> UdpClient<T> {
 
     /// Create a client with a custom configuration.
     pub fn with_config(transport: T, config: UdpClientConfig) -> Self {
-        Self(ClientCore::new(UdpAduAdapter::with_config(
-            transport, config,
-        )))
+        Self(ClientCore::with_config(
+            UdpAduAdapter::with_config(transport, config),
+            config,
+        ))
     }
 }
 
@@ -213,9 +214,10 @@ impl<T: AsyncTransport> AsyncUdpClient<T> {
 
     /// Create a client with a custom configuration.
     pub fn with_config(transport: T, config: UdpClientConfig) -> Self {
-        Self(AsyncClientCore::new(AsyncUdpAduAdapter::with_config(
-            transport, config,
-        )))
+        Self(AsyncClientCore::with_config(
+            AsyncUdpAduAdapter::with_config(transport, config),
+            config,
+        ))
     }
 }
 

@@ -27,11 +27,11 @@ use crate::function_codes::read_discrete_inputs::{
 use crate::function_codes::read_exception_status::{
     ReadExceptionStatusRequest, ReadExceptionStatusResponse,
 };
+use crate::function_codes::read_fifo_queue::{ReadFifoQueueRequest, ReadFifoQueueResponse};
 use crate::function_codes::read_file_record::{
     ReadFileRecordRequest, ReadFileRecordResponse, ReadFileRecordSubRequest,
     ReadFileRecordSubResponse,
 };
-use crate::function_codes::read_fifo_queue::{ReadFifoQueueRequest, ReadFifoQueueResponse};
 use crate::function_codes::read_holding_registers::{
     ReadHoldingRegistersRequest, ReadHoldingRegistersResponse,
 };
@@ -58,6 +58,8 @@ use crate::function_codes::write_single_register::{
 };
 use crate::macros::impl_client_methods;
 use crate::transport::AsyncTransport;
+#[cfg(feature = "helpers")]
+use crate::{helpers, helpers::Endian};
 
 /// Generic asynchronous Modbus client.
 ///
@@ -66,12 +68,25 @@ use crate::transport::AsyncTransport;
 #[derive(Debug)]
 pub struct AsyncClientCore<A: AsyncAduAdapter> {
     adapter: A,
+    #[cfg(feature = "helpers")]
+    config: ClientConfig,
 }
 
 impl<A: AsyncAduAdapter> AsyncClientCore<A> {
-    /// Create a client around an adapter.
+    /// Create a client around an adapter with the default configuration.
     pub fn new(adapter: A) -> Self {
-        Self { adapter }
+        Self::with_config(adapter, ClientConfig::default())
+    }
+
+    /// Create a client around an adapter with a custom configuration.
+    pub fn with_config(adapter: A, config: ClientConfig) -> Self {
+        #[cfg(not(feature = "helpers"))]
+        let _ = config;
+        Self {
+            adapter,
+            #[cfg(feature = "helpers")]
+            config,
+        }
     }
 
     /// Dispatch a request PDU to `unit_id` and return the response PDU.
@@ -94,8 +109,331 @@ impl<A: AsyncAduAdapter> AsyncClientCore<A> {
     }
 
     impl_client_methods!([async] [.await]);
+}
 
+#[cfg(feature = "helpers")]
+impl<A: AsyncAduAdapter> AsyncClientCore<A> {
+    /// Read a single holding register as a `u16`.
+    pub async fn read_holding_registers_u16(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<u16, ClientError> {
+        let bytes = self.read_holding_registers(unit_id, address, 1).await?;
+        helpers::u16_from_bytes(&bytes, self.config.endian).map_err(ClientError::from)
+    }
 
+    /// Read a single holding register as an `i16`.
+    pub async fn read_holding_registers_i16(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<i16, ClientError> {
+        let bytes = self.read_holding_registers(unit_id, address, 1).await?;
+        helpers::i16_from_bytes(&bytes, self.config.endian).map_err(ClientError::from)
+    }
+
+    /// Read two holding registers as a `u32` using the configured endianness and word order.
+    pub async fn read_holding_registers_u32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<u32, ClientError> {
+        let bytes = self.read_holding_registers(unit_id, address, 2).await?;
+        let words = bytes_to_words(&bytes, self.config.endian)?;
+        helpers::u32_from_registers(&words, self.config.endian, self.config.word_order)
+            .map_err(ClientError::from)
+    }
+
+    /// Read two holding registers as an `i32` using the configured endianness and word order.
+    pub async fn read_holding_registers_i32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<i32, ClientError> {
+        let bytes = self.read_holding_registers(unit_id, address, 2).await?;
+        let words = bytes_to_words(&bytes, self.config.endian)?;
+        helpers::i32_from_registers(&words, self.config.endian, self.config.word_order)
+            .map_err(ClientError::from)
+    }
+
+    /// Read two holding registers as an `f32` using the configured endianness and word order.
+    pub async fn read_holding_registers_f32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<f32, ClientError> {
+        let bytes = self.read_holding_registers(unit_id, address, 2).await?;
+        let words = bytes_to_words(&bytes, self.config.endian)?;
+        helpers::f32_from_registers(&words, self.config.endian, self.config.word_order)
+            .map_err(ClientError::from)
+    }
+
+    /// Read four holding registers as a `u64` using the configured endianness and word order.
+    pub async fn read_holding_registers_u64(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<u64, ClientError> {
+        let bytes = self.read_holding_registers(unit_id, address, 4).await?;
+        let words = bytes_to_words(&bytes, self.config.endian)?;
+        helpers::u64_from_registers(&words, self.config.endian, self.config.word_order)
+            .map_err(ClientError::from)
+    }
+
+    /// Read four holding registers as an `i64` using the configured endianness and word order.
+    pub async fn read_holding_registers_i64(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<i64, ClientError> {
+        let bytes = self.read_holding_registers(unit_id, address, 4).await?;
+        let words = bytes_to_words(&bytes, self.config.endian)?;
+        helpers::i64_from_registers(&words, self.config.endian, self.config.word_order)
+            .map_err(ClientError::from)
+    }
+
+    /// Read four holding registers as an `f64` using the configured endianness and word order.
+    pub async fn read_holding_registers_f64(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<f64, ClientError> {
+        let bytes = self.read_holding_registers(unit_id, address, 4).await?;
+        let words = bytes_to_words(&bytes, self.config.endian)?;
+        helpers::f64_from_registers(&words, self.config.endian, self.config.word_order)
+            .map_err(ClientError::from)
+    }
+
+    /// Read `quantity` holding registers as a NUL-terminated string.
+    pub async fn read_holding_registers_string(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        quantity: u16,
+    ) -> Result<String, ClientError> {
+        let bytes = self.read_holding_registers(unit_id, address, quantity).await?;
+        let words = bytes_to_words(&bytes, self.config.endian)?;
+        helpers::string_from_registers(&words, self.config.endian).map_err(ClientError::from)
+    }
+
+    /// Read a single input register as a `u16`.
+    pub async fn read_input_registers_u16(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<u16, ClientError> {
+        let bytes = self.read_input_registers(unit_id, address, 1).await?;
+        helpers::u16_from_bytes(&bytes, self.config.endian).map_err(ClientError::from)
+    }
+
+    /// Read a single input register as an `i16`.
+    pub async fn read_input_registers_i16(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<i16, ClientError> {
+        let bytes = self.read_input_registers(unit_id, address, 1).await?;
+        helpers::i16_from_bytes(&bytes, self.config.endian).map_err(ClientError::from)
+    }
+
+    /// Read two input registers as a `u32` using the configured endianness and word order.
+    pub async fn read_input_registers_u32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<u32, ClientError> {
+        let bytes = self.read_input_registers(unit_id, address, 2).await?;
+        let words = bytes_to_words(&bytes, self.config.endian)?;
+        helpers::u32_from_registers(&words, self.config.endian, self.config.word_order)
+            .map_err(ClientError::from)
+    }
+
+    /// Read two input registers as an `i32` using the configured endianness and word order.
+    pub async fn read_input_registers_i32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<i32, ClientError> {
+        let bytes = self.read_input_registers(unit_id, address, 2).await?;
+        let words = bytes_to_words(&bytes, self.config.endian)?;
+        helpers::i32_from_registers(&words, self.config.endian, self.config.word_order)
+            .map_err(ClientError::from)
+    }
+
+    /// Read two input registers as an `f32` using the configured endianness and word order.
+    pub async fn read_input_registers_f32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<f32, ClientError> {
+        let bytes = self.read_input_registers(unit_id, address, 2).await?;
+        let words = bytes_to_words(&bytes, self.config.endian)?;
+        helpers::f32_from_registers(&words, self.config.endian, self.config.word_order)
+            .map_err(ClientError::from)
+    }
+
+    /// Read four input registers as a `u64` using the configured endianness and word order.
+    pub async fn read_input_registers_u64(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<u64, ClientError> {
+        let bytes = self.read_input_registers(unit_id, address, 4).await?;
+        let words = bytes_to_words(&bytes, self.config.endian)?;
+        helpers::u64_from_registers(&words, self.config.endian, self.config.word_order)
+            .map_err(ClientError::from)
+    }
+
+    /// Read four input registers as an `i64` using the configured endianness and word order.
+    pub async fn read_input_registers_i64(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<i64, ClientError> {
+        let bytes = self.read_input_registers(unit_id, address, 4).await?;
+        let words = bytes_to_words(&bytes, self.config.endian)?;
+        helpers::i64_from_registers(&words, self.config.endian, self.config.word_order)
+            .map_err(ClientError::from)
+    }
+
+    /// Read four input registers as an `f64` using the configured endianness and word order.
+    pub async fn read_input_registers_f64(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<f64, ClientError> {
+        let bytes = self.read_input_registers(unit_id, address, 4).await?;
+        let words = bytes_to_words(&bytes, self.config.endian)?;
+        helpers::f64_from_registers(&words, self.config.endian, self.config.word_order)
+            .map_err(ClientError::from)
+    }
+
+    /// Read `quantity` input registers as a NUL-terminated string.
+    pub async fn read_input_registers_string(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        quantity: u16,
+    ) -> Result<String, ClientError> {
+        let bytes = self.read_input_registers(unit_id, address, quantity).await?;
+        let words = bytes_to_words(&bytes, self.config.endian)?;
+        helpers::string_from_registers(&words, self.config.endian).map_err(ClientError::from)
+    }
+}
+
+#[cfg(feature = "helpers")]
+fn bytes_to_words(bytes: &[u8], endian: Endian) -> Result<Vec<u16>, ClientError> {
+    if bytes.len() % 2 != 0 {
+        return Err(ClientError::Decode(crate::error::DecodeError::InvalidLength));
+    }
+    bytes
+        .chunks_exact(2)
+        .map(|chunk| helpers::u16_from_bytes(chunk, endian))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(ClientError::from)
+}
+
+#[cfg(feature = "helpers")]
+impl<A: AsyncAduAdapter> AsyncClientCore<A> {
+    /// Write a `u16` value to a single holding register.
+    pub async fn write_multiple_registers_u16(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: u16,
+    ) -> Result<(), ClientError> {
+        self.write_registers(unit_id, address, &[value]).await
+    }
+
+    /// Write an `i16` value to a single holding register.
+    pub async fn write_multiple_registers_i16(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: i16,
+    ) -> Result<(), ClientError> {
+        self.write_registers(unit_id, address, &[value as u16]).await
+    }
+
+    /// Write a `u32` value to two holding registers using the configured endianness and word order.
+    pub async fn write_multiple_registers_u32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: u32,
+    ) -> Result<(), ClientError> {
+        let regs = helpers::u32_to_registers(value, self.config.endian, self.config.word_order);
+        self.write_registers(unit_id, address, &regs).await
+    }
+
+    /// Write an `i32` value to two holding registers using the configured endianness and word order.
+    pub async fn write_multiple_registers_i32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: i32,
+    ) -> Result<(), ClientError> {
+        let regs = helpers::i32_to_registers(value, self.config.endian, self.config.word_order);
+        self.write_registers(unit_id, address, &regs).await
+    }
+
+    /// Write an `f32` value to two holding registers using the configured endianness and word order.
+    pub async fn write_multiple_registers_f32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: f32,
+    ) -> Result<(), ClientError> {
+        let regs = helpers::f32_to_registers(value, self.config.endian, self.config.word_order);
+        self.write_registers(unit_id, address, &regs).await
+    }
+
+    /// Write a `u64` value to four holding registers using the configured endianness and word order.
+    pub async fn write_multiple_registers_u64(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: u64,
+    ) -> Result<(), ClientError> {
+        let regs = helpers::u64_to_registers(value, self.config.endian, self.config.word_order);
+        self.write_registers(unit_id, address, &regs).await
+    }
+
+    /// Write an `i64` value to four holding registers using the configured endianness and word order.
+    pub async fn write_multiple_registers_i64(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: i64,
+    ) -> Result<(), ClientError> {
+        let regs = helpers::i64_to_registers(value, self.config.endian, self.config.word_order);
+        self.write_registers(unit_id, address, &regs).await
+    }
+
+    /// Write an `f64` value to four holding registers using the configured endianness and word order.
+    pub async fn write_multiple_registers_f64(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: f64,
+    ) -> Result<(), ClientError> {
+        let regs = helpers::f64_to_registers(value, self.config.endian, self.config.word_order);
+        self.write_registers(unit_id, address, &regs).await
+    }
+
+    /// Write a string to holding registers, padded to `pad_to` registers if non-zero.
+    pub async fn write_multiple_registers_string(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: &str,
+        pad_to: usize,
+    ) -> Result<(), ClientError> {
+        let regs = helpers::string_to_registers(value, self.config.endian, pad_to)
+            .map_err(ClientError::from)?;
+        self.write_registers(unit_id, address, &regs).await
+    }
 }
 
 /// Asynchronous RTU Modbus client.
@@ -113,7 +451,10 @@ impl<T: AsyncTransport> AsyncClient<T> {
 
     /// Create a client with a custom configuration.
     pub fn with_config(transport: T, config: ClientConfig) -> Self {
-        Self(AsyncClientCore::new(AsyncRtuAduAdapter::with_config(transport, config)))
+        Self(AsyncClientCore::with_config(
+            AsyncRtuAduAdapter::with_config(transport, config),
+            config,
+        ))
     }
 }
 
@@ -128,6 +469,25 @@ impl<T: AsyncTransport> Deref for AsyncClient<T> {
 impl<T: AsyncTransport> DerefMut for AsyncClient<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+#[cfg(all(feature = "rtu", feature = "tcp"))]
+impl AsyncClient<crate::rtu_transport::AsyncRtuTransport<tokio::net::TcpStream>> {
+    /// Connect to a remote RTU-over-TCP server asynchronously.
+    ///
+    /// This opens a plain TCP connection and wraps it with RTU framing. The
+    /// resulting client is functionally identical to an RTU serial client, but
+    /// the bytes travel over TCP.
+    pub async fn connect_rtu_over_tcp(
+        addr: impl tokio::net::ToSocketAddrs,
+        config: ClientConfig,
+    ) -> Result<Self, ClientError> {
+        let stream = tokio::net::TcpStream::connect(addr)
+            .await
+            .map_err(crate::transport::TransportError::Io)?;
+        let transport = crate::rtu_transport::AsyncRtuTransport::new(stream);
+        Ok(Self::with_config(transport, config))
     }
 }
 
@@ -280,5 +640,170 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, ClientError::InvalidResponse));
+    }
+}
+
+#[cfg(all(test, feature = "helpers"))]
+mod typed_helpers_tests {
+    use super::*;
+    use crate::helpers::{Endian, WordOrder};
+    use crate::rtu::RtuAdu;
+    use crate::server::{DataStore, MemoryStore, Server};
+    use crate::transport::{AsyncTransport, TransportError};
+    use core::time::Duration;
+
+    struct AsyncLoopbackTransport {
+        server: Server<MemoryStore>,
+        pending: Option<Vec<u8>>,
+    }
+
+    impl AsyncLoopbackTransport {
+        fn new(server: Server<MemoryStore>) -> Self {
+            Self {
+                server,
+                pending: None,
+            }
+        }
+    }
+
+    impl AsyncTransport for AsyncLoopbackTransport {
+        async fn send(&mut self, data: &[u8]) -> Result<(), TransportError> {
+            let request = RtuAdu::decode(data).map_err(|_| TransportError::Disconnected)?;
+            let mut pdu_response = [0u8; 512];
+            let n = self
+                .server
+                .dispatch(&request.pdu, &mut pdu_response)
+                .map_err(|_| TransportError::Disconnected)?;
+            let response = RtuAdu::new(request.address, pdu_response[..n].to_vec());
+            let mut adu = [0u8; 512];
+            let m = response
+                .encode(&mut adu)
+                .map_err(|_| TransportError::Disconnected)?;
+            self.pending = Some(adu[..m].to_vec());
+            Ok(())
+        }
+
+        async fn recv(
+            &mut self,
+            buf: &mut [u8],
+            _timeout: Duration,
+        ) -> Result<usize, TransportError> {
+            let data = self.pending.take().ok_or(TransportError::Disconnected)?;
+            if buf.len() < data.len() {
+                return Err(TransportError::Disconnected);
+            }
+            buf[..data.len()].copy_from_slice(&data);
+            Ok(data.len())
+        }
+    }
+
+    fn holding_client(
+        regs: &[u16],
+        config: ClientConfig,
+    ) -> AsyncClient<AsyncLoopbackTransport> {
+        let mut store = MemoryStore::new(0, 0, 8, 8);
+        store.write_registers(0, regs).unwrap();
+        AsyncClient::with_config(AsyncLoopbackTransport::new(Server::new(store)), config)
+    }
+
+    fn input_client(
+        regs: &[u16],
+        config: ClientConfig,
+    ) -> AsyncClient<AsyncLoopbackTransport> {
+        let mut store = MemoryStore::new(0, 0, 0, 8);
+        store.write_input_registers(0, regs).unwrap();
+        AsyncClient::with_config(AsyncLoopbackTransport::new(Server::new(store)), config)
+    }
+
+    #[tokio::test]
+    async fn read_holding_registers_u32_big_endian_msf() {
+        let mut client = holding_client(&[0x1234, 0x5678], ClientConfig::default());
+        assert_eq!(
+            client.read_holding_registers_u32(0x01, 0).await.unwrap(),
+            0x12345678
+        );
+    }
+
+    #[tokio::test]
+    async fn read_holding_registers_u32_little_endian_lsf() {
+        let mut config = ClientConfig::default();
+        config.endian = Endian::Little;
+        config.word_order = WordOrder::LeastSignificantFirst;
+        let mut client = holding_client(&[0x5678, 0x1234], config);
+        assert_eq!(
+            client.read_holding_registers_u32(0x01, 0).await.unwrap(),
+            0x12345678
+        );
+    }
+
+    #[tokio::test]
+    async fn read_holding_registers_f32_roundtrip() {
+        let value = 2.7182817f32;
+        let regs = crate::helpers::f32_to_registers(value, Endian::Big, WordOrder::MostSignificantFirst);
+        let mut client = holding_client(&regs, ClientConfig::default());
+        assert_eq!(
+            client.read_holding_registers_f32(0x01, 0).await.unwrap(),
+            value
+        );
+    }
+
+    #[tokio::test]
+    async fn read_holding_registers_string_stops_at_nul() {
+        let regs = crate::helpers::string_to_registers("Hi", Endian::Big, 4).unwrap();
+        let mut client = holding_client(&regs, ClientConfig::default());
+        assert_eq!(
+            client.read_holding_registers_string(0x01, 0, 4).await.unwrap(),
+            "Hi"
+        );
+    }
+
+    #[tokio::test]
+    async fn read_input_registers_u32_uses_config() {
+        let mut client = input_client(&[0x1234, 0x5678], ClientConfig::default());
+        assert_eq!(
+            client.read_input_registers_u32(0x01, 0).await.unwrap(),
+            0x12345678
+        );
+    }
+
+    #[tokio::test]
+    async fn write_and_read_holding_registers_u32_roundtrip() {
+        let value = 0xCAFEBABEu32;
+        let mut client = holding_client(&[0, 0], ClientConfig::default());
+        client
+            .write_multiple_registers_u32(0x01, 0, value)
+            .await
+            .unwrap();
+        assert_eq!(
+            client.read_holding_registers_u32(0x01, 0).await.unwrap(),
+            value
+        );
+    }
+
+    #[tokio::test]
+    async fn write_and_read_holding_registers_f32_roundtrip() {
+        let value = -1.5f32;
+        let mut client = holding_client(&[0, 0], ClientConfig::default());
+        client
+            .write_multiple_registers_f32(0x01, 0, value)
+            .await
+            .unwrap();
+        assert_eq!(
+            client.read_holding_registers_f32(0x01, 0).await.unwrap(),
+            value
+        );
+    }
+
+    #[tokio::test]
+    async fn write_and_read_holding_registers_string_roundtrip() {
+        let mut client = holding_client(&[0, 0, 0, 0], ClientConfig::default());
+        client
+            .write_multiple_registers_string(0x01, 0, "Hello", 4)
+            .await
+            .unwrap();
+        assert_eq!(
+            client.read_holding_registers_string(0x01, 0, 4).await.unwrap(),
+            "Hello"
+        );
     }
 }

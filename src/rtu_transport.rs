@@ -304,6 +304,7 @@ mod tests {
 
         let config = ClientConfig {
             timeout: Duration::from_secs(1),
+            ..Default::default()
         };
         let mut client = Client::with_config(LoopbackTransport::new(server), config);
         let coils = client.read_coils(0x01, 0, 8).unwrap();

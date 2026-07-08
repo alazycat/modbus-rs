@@ -20,6 +20,9 @@ pub mod rtu_transport;
 #[cfg(all(feature = "rtu", feature = "sync"))]
 pub mod rtu_server;
 
+#[cfg(all(feature = "rtu", feature = "tcp", any(feature = "sync", feature = "async")))]
+pub mod rtu_over_tcp_server;
+
 #[cfg(feature = "ascii")]
 pub mod ascii;
 

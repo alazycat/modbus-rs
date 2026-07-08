@@ -10,17 +10,16 @@
 use alloc::vec::Vec;
 use core::ops::{Deref, DerefMut};
 
-use crate::client::{ClientConfig, ClientError};
-use crate::transport::TransportError;
-use crate::udp::UdpAdu;
+use crate::client::ClientConfig;
+use crate::macros::impl_adu_adapter;
 
 #[cfg(feature = "sync")]
-use crate::client::{AduAdapter, ClientCore};
+use crate::client::ClientCore;
 #[cfg(feature = "sync")]
 use crate::transport::Transport;
 
 #[cfg(feature = "async")]
-use crate::client::{AsyncAduAdapter, AsyncClientCore};
+use crate::client::AsyncClientCore;
 #[cfg(feature = "async")]
 use crate::transport::AsyncTransport;
 
@@ -30,64 +29,13 @@ pub type UdpClientConfig = crate::client::ClientConfig;
 /// Errors that can occur while using the UDP client.
 pub type UdpClientError = crate::client::ClientError;
 
-/// Synchronous UDP ADU adapter.
 #[cfg(feature = "sync")]
-#[derive(Debug)]
-pub struct UdpAduAdapter<T: Transport> {
-    transport: T,
-    config: ClientConfig,
-    next_transaction_id: u16,
-}
-
-#[cfg(feature = "sync")]
-impl<T: Transport> UdpAduAdapter<T> {
-    /// Create an adapter with the default configuration.
-    pub fn new(transport: T) -> Self {
-        Self::with_config(transport, ClientConfig::default())
-    }
-
-    /// Create an adapter with a custom configuration.
-    pub fn with_config(transport: T, config: ClientConfig) -> Self {
-        Self {
-            transport,
-            config,
-            next_transaction_id: 1,
-        }
-    }
-}
-
-#[cfg(feature = "sync")]
-impl<T: Transport> AduAdapter for UdpAduAdapter<T> {
-    fn send_receive(
-        &mut self,
-        unit_id: u8,
-        request_pdu: &[u8],
-    ) -> Result<Vec<u8>, ClientError> {
-        let transaction_id = self.next_transaction_id;
-        self.next_transaction_id = self.next_transaction_id.wrapping_add(1);
-
-        let adu = UdpAdu::new(transaction_id, unit_id, request_pdu.to_vec());
-        let mut tx = [0u8; 512];
-        let n = adu.encode(&mut tx).map_err(ClientError::Encode)?;
-        self.transport.send(&tx[..n])?;
-
-        let mut rx = [0u8; 512];
-        let m = self.transport.recv(&mut rx, self.config.timeout)?;
-        if m == 0 {
-            return Err(ClientError::Transport(TransportError::Disconnected));
-        }
-        let response = UdpAdu::decode(&rx[..m]).map_err(ClientError::Decode)?;
-        if response.transaction_id != transaction_id {
-            return Err(ClientError::InvalidResponse);
-        }
-        if response.unit_id != unit_id {
-            return Err(ClientError::InvalidResponse);
-        }
-        if response.pdu.is_empty() {
-            return Err(ClientError::InvalidResponse);
-        }
-        Ok(response.pdu)
-    }
+impl_adu_adapter! {
+    [] [],
+    /// Synchronous UDP ADU adapter.
+    UdpAduAdapter,
+    crate::udp::UdpAdu,
+    transaction
 }
 
 /// A synchronous UDP Modbus client.
@@ -130,7 +78,7 @@ impl<T: Transport> DerefMut for UdpClient<T> {
 mod tests {
     use super::*;
     use crate::server::{DataStore, MemoryStore, Server};
-    use crate::transport::Transport;
+    use crate::transport::{Transport, TransportError};
     use crate::udp::UdpAdu;
     use core::time::Duration;
 
@@ -242,64 +190,13 @@ mod tests {
     }
 }
 
-/// Asynchronous UDP ADU adapter.
 #[cfg(feature = "async")]
-#[derive(Debug)]
-pub struct AsyncUdpAduAdapter<T: AsyncTransport> {
-    transport: T,
-    config: ClientConfig,
-    next_transaction_id: u16,
-}
-
-#[cfg(feature = "async")]
-impl<T: AsyncTransport> AsyncUdpAduAdapter<T> {
-    /// Create an adapter with the default configuration.
-    pub fn new(transport: T) -> Self {
-        Self::with_config(transport, ClientConfig::default())
-    }
-
-    /// Create an adapter with a custom configuration.
-    pub fn with_config(transport: T, config: ClientConfig) -> Self {
-        Self {
-            transport,
-            config,
-            next_transaction_id: 1,
-        }
-    }
-}
-
-#[cfg(feature = "async")]
-impl<T: AsyncTransport> AsyncAduAdapter for AsyncUdpAduAdapter<T> {
-    async fn send_receive(
-        &mut self,
-        unit_id: u8,
-        request_pdu: &[u8],
-    ) -> Result<Vec<u8>, ClientError> {
-        let transaction_id = self.next_transaction_id;
-        self.next_transaction_id = self.next_transaction_id.wrapping_add(1);
-
-        let adu = UdpAdu::new(transaction_id, unit_id, request_pdu.to_vec());
-        let mut tx = [0u8; 512];
-        let n = adu.encode(&mut tx).map_err(ClientError::Encode)?;
-        self.transport.send(&tx[..n]).await?;
-
-        let mut rx = [0u8; 512];
-        let m = self.transport.recv(&mut rx, self.config.timeout).await?;
-        if m == 0 {
-            return Err(ClientError::Transport(TransportError::Disconnected));
-        }
-        let response = UdpAdu::decode(&rx[..m]).map_err(ClientError::Decode)?;
-        if response.transaction_id != transaction_id {
-            return Err(ClientError::InvalidResponse);
-        }
-        if response.unit_id != unit_id {
-            return Err(ClientError::InvalidResponse);
-        }
-        if response.pdu.is_empty() {
-            return Err(ClientError::InvalidResponse);
-        }
-        Ok(response.pdu)
-    }
+impl_adu_adapter! {
+    [async] [.await],
+    /// Asynchronous UDP ADU adapter.
+    AsyncUdpAduAdapter,
+    crate::udp::UdpAdu,
+    transaction
 }
 
 /// An asynchronous UDP Modbus client.
@@ -342,7 +239,7 @@ impl<T: AsyncTransport> DerefMut for AsyncUdpClient<T> {
 mod async_tests {
     use super::*;
     use crate::server::{DataStore, MemoryStore, Server};
-    use crate::transport::AsyncTransport;
+    use crate::transport::{AsyncTransport, TransportError};
     use crate::udp::UdpAdu;
     use core::time::Duration;
 

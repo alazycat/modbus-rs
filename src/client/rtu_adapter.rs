@@ -7,12 +7,16 @@
 
 use alloc::vec::Vec;
 
-use super::{AduAdapter, ClientConfig, ClientError};
 use crate::rtu::RtuAdu;
-use crate::transport::{Transport, TransportError};
+use crate::transport::TransportError;
+
+#[cfg(feature = "sync")]
+use super::{AduAdapter, ClientConfig, ClientError};
+#[cfg(feature = "sync")]
+use crate::transport::Transport;
 
 #[cfg(feature = "async")]
-use super::AsyncAduAdapter;
+use super::{AsyncAduAdapter, ClientConfig, ClientError};
 #[cfg(feature = "async")]
 use crate::transport::AsyncTransport;
 

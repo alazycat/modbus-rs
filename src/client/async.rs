@@ -4,8 +4,9 @@
 
 use alloc::vec;
 use alloc::vec::Vec;
+use core::ops::{Deref, DerefMut};
 
-use super::{pack_bits, ClientConfig, ClientError};
+use super::{AsyncAduAdapter, AsyncRtuAduAdapter, ClientConfig, ClientError};
 use crate::exception::ExceptionResponse;
 use crate::function_codes::diagnostics::{DiagnosticsRequest, DiagnosticsResponse};
 use crate::function_codes::encapsulated_interface_transport::{
@@ -54,38 +55,31 @@ use crate::function_codes::write_single_coil::{WriteSingleCoilRequest, WriteSing
 use crate::function_codes::write_single_register::{
     WriteSingleRegisterRequest, WriteSingleRegisterResponse,
 };
-use crate::rtu::RtuAdu;
-use crate::transport::{AsyncTransport, TransportError};
+use crate::transport::AsyncTransport;
 
-/// An asynchronous Modbus client.
+/// Generic asynchronous Modbus client.
 ///
-/// The client dispatches request PDUs over an [`AsyncTransport`], waits for the
-/// response, and performs basic response validation. This implementation wraps
-/// PDUs in RTU ADUs.
-pub struct AsyncClient<T: AsyncTransport> {
-    transport: T,
-    config: ClientConfig,
+/// The client dispatches request PDUs through an [`AsyncAduAdapter`], waits for
+/// the response, and performs basic response validation.
+#[derive(Debug)]
+pub struct AsyncClientCore<A: AsyncAduAdapter> {
+    adapter: A,
 }
 
-impl<T: AsyncTransport> AsyncClient<T> {
-    /// Create a client with the default configuration.
-    pub fn new(transport: T) -> Self {
-        Self::with_config(transport, ClientConfig::default())
+impl<A: AsyncAduAdapter> AsyncClientCore<A> {
+    /// Create a client around an adapter.
+    pub fn new(adapter: A) -> Self {
+        Self { adapter }
     }
 
-    /// Create a client with a custom configuration.
-    pub fn with_config(transport: T, config: ClientConfig) -> Self {
-        Self { transport, config }
-    }
-
-    /// Dispatch a request PDU to `slave` and return the response PDU.
+    /// Dispatch a request PDU to `unit_id` and return the response PDU.
     ///
     /// The request PDU must begin with the function code. The returned response
     /// PDU also begins with the function code, unless the server replied with
     /// an exception.
     pub async fn dispatch(
         &mut self,
-        slave: u8,
+        unit_id: u8,
         request_pdu: &[u8],
     ) -> Result<Vec<u8>, ClientError> {
         if request_pdu.is_empty() {
@@ -93,70 +87,57 @@ impl<T: AsyncTransport> AsyncClient<T> {
         }
         let request_function = request_pdu[0];
 
-        let adu = RtuAdu::new(slave, request_pdu.to_vec());
-        let mut tx = [0u8; 512];
-        let n = adu.encode(&mut tx).map_err(ClientError::Encode)?;
-        self.transport.send(&tx[..n]).await?;
-
-        let mut rx = [0u8; 512];
-        let m = self.transport.recv(&mut rx, self.config.timeout).await?;
-        if m == 0 {
-            return Err(ClientError::Transport(TransportError::Disconnected));
-        }
-        let response = RtuAdu::decode(&rx[..m]).map_err(ClientError::Decode)?;
-        if response.address != slave {
-            return Err(ClientError::InvalidResponse);
-        }
-        if response.pdu.is_empty() {
+        let response_pdu = self.adapter.send_receive(unit_id, request_pdu).await?;
+        if response_pdu.is_empty() {
             return Err(ClientError::InvalidResponse);
         }
 
-        let response_function = response.pdu[0];
+        let response_function = response_pdu[0];
         if response_function == request_function | ExceptionResponse::EXCEPTION_FLAG {
-            let exc = ExceptionResponse::decode(&response.pdu).map_err(ClientError::Decode)?;
+            let exc = ExceptionResponse::decode(&response_pdu).map_err(ClientError::Decode)?;
             return Err(ClientError::Exception(exc));
         }
         if response_function != request_function {
             return Err(ClientError::InvalidResponse);
         }
 
-        Ok(response.pdu)
+        Ok(response_pdu)
     }
 
-    /// Read `quantity` coils starting at `address` from `slave`.
+    /// Read `quantity` coils starting at `address` from `unit_id`.
     pub async fn read_coils(
         &mut self,
-        slave: u8,
+        unit_id: u8,
         address: u16,
         quantity: u16,
     ) -> Result<Vec<u8>, ClientError> {
         let req = ReadCoilsRequest::new(address, quantity).map_err(ClientError::Decode)?;
         let mut buf = [0u8; 5];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let pdu = self.dispatch(unit_id, &buf[..n]).await?;
         let resp = ReadCoilsResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok(resp.coil_status)
     }
 
-    /// Read `quantity` discrete inputs starting at `address` from `slave`.
+    /// Read `quantity` discrete inputs starting at `address` from `unit_id`.
     pub async fn read_discrete_inputs(
         &mut self,
-        slave: u8,
+        unit_id: u8,
         address: u16,
         quantity: u16,
     ) -> Result<Vec<u8>, ClientError> {
         let req = ReadDiscreteInputsRequest::new(address, quantity).map_err(ClientError::Decode)?;
         let mut buf = [0u8; 5];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let pdu = self.dispatch(unit_id, &buf[..n]).await?;
         let resp = ReadDiscreteInputsResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok(resp.input_status)
     }
 
-    /// Read `quantity` holding registers starting at `address` from `slave`.
+    /// Read `quantity` holding registers starting at `address` from `unit_id`.
     pub async fn read_holding_registers(
         &mut self,
-        slave: u8,
+        unit_id: u8,
         address: u16,
         quantity: u16,
     ) -> Result<Vec<u8>, ClientError> {
@@ -164,30 +145,30 @@ impl<T: AsyncTransport> AsyncClient<T> {
             ReadHoldingRegistersRequest::new(address, quantity).map_err(ClientError::Decode)?;
         let mut buf = [0u8; 5];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let pdu = self.dispatch(unit_id, &buf[..n]).await?;
         let resp = ReadHoldingRegistersResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok(resp.register_values)
     }
 
-    /// Read `quantity` input registers starting at `address` from `slave`.
+    /// Read `quantity` input registers starting at `address` from `unit_id`.
     pub async fn read_input_registers(
         &mut self,
-        slave: u8,
+        unit_id: u8,
         address: u16,
         quantity: u16,
     ) -> Result<Vec<u8>, ClientError> {
         let req = ReadInputRegistersRequest::new(address, quantity).map_err(ClientError::Decode)?;
         let mut buf = [0u8; 5];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let pdu = self.dispatch(unit_id, &buf[..n]).await?;
         let resp = ReadInputRegistersResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok(resp.register_values)
     }
 
-    /// Write a single coil at `address` on `slave`.
+    /// Write a single coil at `address` on `unit_id`.
     pub async fn write_coil(
         &mut self,
-        slave: u8,
+        unit_id: u8,
         address: u16,
         value: bool,
     ) -> Result<(), ClientError> {
@@ -199,48 +180,48 @@ impl<T: AsyncTransport> AsyncClient<T> {
         let req = WriteSingleCoilRequest::new(address, raw).map_err(ClientError::Decode)?;
         let mut buf = [0u8; 5];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let pdu = self.dispatch(unit_id, &buf[..n]).await?;
         let _ = WriteSingleCoilResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok(())
     }
 
-    /// Write a single holding register at `address` on `slave`.
+    /// Write a single holding register at `address` on `unit_id`.
     pub async fn write_register(
         &mut self,
-        slave: u8,
+        unit_id: u8,
         address: u16,
         value: u16,
     ) -> Result<(), ClientError> {
         let req = WriteSingleRegisterRequest::new(address, value);
         let mut buf = [0u8; 5];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let pdu = self.dispatch(unit_id, &buf[..n]).await?;
         let _ = WriteSingleRegisterResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok(())
     }
 
-    /// Write multiple coils starting at `address` on `slave`.
+    /// Write multiple coils starting at `address` on `unit_id`.
     pub async fn write_coils(
         &mut self,
-        slave: u8,
+        unit_id: u8,
         address: u16,
         values: &[bool],
     ) -> Result<(), ClientError> {
-        let outputs = pack_bits(values);
+        let outputs = super::pack_bits(values);
         let quantity = values.len() as u16;
         let req = WriteMultipleCoilsRequest::new(address, quantity, outputs)
             .map_err(ClientError::Decode)?;
         let mut buf = vec![0u8; 6 + req.outputs.len()];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let pdu = self.dispatch(unit_id, &buf[..n]).await?;
         let _ = WriteMultipleCoilsResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok(())
     }
 
-    /// Write multiple holding registers starting at `address` on `slave`.
+    /// Write multiple holding registers starting at `address` on `unit_id`.
     pub async fn write_registers(
         &mut self,
-        slave: u8,
+        unit_id: u8,
         address: u16,
         values: &[u16],
     ) -> Result<(), ClientError> {
@@ -253,73 +234,80 @@ impl<T: AsyncTransport> AsyncClient<T> {
             .map_err(ClientError::Decode)?;
         let mut buf = vec![0u8; 6 + req.register_values.len()];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let pdu = self.dispatch(unit_id, &buf[..n]).await?;
         let _ = WriteMultipleRegistersResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok(())
     }
 
-    /// Read the exception status byte from `slave` (FC 0x07).
-    pub async fn read_exception_status(&mut self, slave: u8) -> Result<u8, ClientError> {
+    /// Read the exception status byte from `unit_id` (FC 0x07).
+    pub async fn read_exception_status(&mut self, unit_id: u8) -> Result<u8, ClientError> {
         let req = ReadExceptionStatusRequest;
         let mut buf = [0u8; 1];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let pdu = self.dispatch(unit_id, &buf[..n]).await?;
         let resp = ReadExceptionStatusResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok(resp.data)
     }
 
-    /// Execute a diagnostics sub-function on `slave` (FC 0x08).
+    /// Execute a diagnostics sub-function on `unit_id` (FC 0x08).
+    ///
+    /// Returns the echoed `(sub_function, data)` pair from the response.
     pub async fn diagnostics(
         &mut self,
-        slave: u8,
+        unit_id: u8,
         sub_function: u16,
         data: u16,
     ) -> Result<(u16, u16), ClientError> {
         let req = DiagnosticsRequest::new(sub_function, data);
         let mut buf = [0u8; 5];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let pdu = self.dispatch(unit_id, &buf[..n]).await?;
         let resp = DiagnosticsResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok((resp.sub_function, resp.data))
     }
 
-    /// Read the communication event counter from `slave` (FC 0x0B).
-    pub async fn get_comm_event_counter(&mut self, slave: u8) -> Result<(u16, u16), ClientError> {
+    /// Read the communication event counter from `unit_id` (FC 0x0B).
+    pub async fn get_comm_event_counter(
+        &mut self,
+        unit_id: u8,
+    ) -> Result<(u16, u16), ClientError> {
         let req = GetCommEventCounterRequest;
         let mut buf = [0u8; 1];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let pdu = self.dispatch(unit_id, &buf[..n]).await?;
         let resp = GetCommEventCounterResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok((resp.status, resp.event_count))
     }
 
-    /// Read the communication event log from `slave` (FC 0x0C).
+    /// Read the communication event log from `unit_id` (FC 0x0C).
     pub async fn get_comm_event_log(
         &mut self,
-        slave: u8,
+        unit_id: u8,
     ) -> Result<(u16, u16, u16, Vec<u8>), ClientError> {
         let req = GetCommEventLogRequest;
         let mut buf = [0u8; 1];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let pdu = self.dispatch(unit_id, &buf[..n]).await?;
         let resp = GetCommEventLogResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok((resp.status, resp.event_count, resp.message_count, resp.events))
     }
 
-    /// Report the server ID from `slave` (FC 0x11).
-    pub async fn report_server_id(&mut self, slave: u8) -> Result<Vec<u8>, ClientError> {
+    /// Report the server ID from `unit_id` (FC 0x11).
+    pub async fn report_server_id(&mut self, unit_id: u8) -> Result<Vec<u8>, ClientError> {
         let req = ReportServerIdRequest;
         let mut buf = [0u8; 1];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let pdu = self.dispatch(unit_id, &buf[..n]).await?;
         let resp = ReportServerIdResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok(resp.data)
     }
 
-    /// Mask-write a holding register on `slave` (FC 0x16).
+    /// Mask-write a holding register on `unit_id` (FC 0x16).
+    ///
+    /// Returns the `(reference_address, and_mask, or_mask)` echoed by the server.
     pub async fn mask_write_register(
         &mut self,
-        slave: u8,
+        unit_id: u8,
         reference_address: u16,
         and_mask: u16,
         or_mask: u16,
@@ -327,15 +315,18 @@ impl<T: AsyncTransport> AsyncClient<T> {
         let req = MaskWriteRegisterRequest::new(reference_address, and_mask, or_mask);
         let mut buf = [0u8; 7];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let pdu = self.dispatch(unit_id, &buf[..n]).await?;
         let resp = MaskWriteRegisterResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok((resp.reference_address, resp.and_mask, resp.or_mask))
     }
 
-    /// Atomically read and write holding registers on `slave` (FC 0x17).
+    /// Atomically read and write holding registers on `unit_id` (FC 0x17).
+    ///
+    /// `write_values` are written starting at `write_address`; the returned
+    /// bytes contain `read_quantity` registers starting at `read_address`.
     pub async fn read_write_multiple_registers(
         &mut self,
-        slave: u8,
+        unit_id: u8,
         read_address: u16,
         read_quantity: u16,
         write_address: u16,
@@ -356,67 +347,100 @@ impl<T: AsyncTransport> AsyncClient<T> {
         .map_err(ClientError::Decode)?;
         let mut buf = vec![0u8; 10 + req.write_values.len()];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let pdu = self.dispatch(unit_id, &buf[..n]).await?;
         let resp = ReadWriteMultipleRegistersResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok(resp.register_values)
     }
 
-    /// Read the FIFO queue at `fifo_pointer_address` from `slave` (FC 0x18).
+    /// Read the FIFO queue at `fifo_pointer_address` from `unit_id` (FC 0x18).
     pub async fn read_fifo_queue(
         &mut self,
-        slave: u8,
+        unit_id: u8,
         fifo_pointer_address: u16,
     ) -> Result<(u16, Vec<u8>), ClientError> {
         let req = ReadFifoQueueRequest::new(fifo_pointer_address);
         let mut buf = [0u8; 3];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let pdu = self.dispatch(unit_id, &buf[..n]).await?;
         let resp = ReadFifoQueueResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok((resp.fifo_count, resp.register_values))
     }
 
-    /// Read file records from `slave` (FC 0x14).
+    /// Read file records from `unit_id` (FC 0x14).
     pub async fn read_file_record(
         &mut self,
-        slave: u8,
+        unit_id: u8,
         sub_requests: &[ReadFileRecordSubRequest],
     ) -> Result<Vec<ReadFileRecordSubResponse>, ClientError> {
         let req = ReadFileRecordRequest::new(sub_requests.to_vec());
         let mut buf = vec![0u8; 2 + sub_requests.len() * 7];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let pdu = self.dispatch(unit_id, &buf[..n]).await?;
         let resp = ReadFileRecordResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok(resp.sub_responses)
     }
 
-    /// Write file records to `slave` (FC 0x15).
+    /// Write file records to `unit_id` (FC 0x15).
     pub async fn write_file_record(
         &mut self,
-        slave: u8,
+        unit_id: u8,
         sub_requests: &[WriteFileRecordSubRequest],
     ) -> Result<Vec<WriteFileRecordSubResponse>, ClientError> {
         let byte_count: usize = sub_requests.iter().map(|s| 7 + s.record_data.len()).sum();
         let req = WriteFileRecordRequest::new(sub_requests.to_vec());
         let mut buf = vec![0u8; 2 + byte_count];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let pdu = self.dispatch(unit_id, &buf[..n]).await?;
         let resp = WriteFileRecordResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok(resp.sub_responses)
     }
 
-    /// Send an encapsulated interface transport request to `slave` (FC 0x2B).
+    /// Send an encapsulated interface transport request to `unit_id` (FC 0x2B).
     pub async fn encapsulated_interface_transport(
         &mut self,
-        slave: u8,
+        unit_id: u8,
         mei_type: u8,
         data: &[u8],
     ) -> Result<(u8, Vec<u8>), ClientError> {
         let req = EncapsulatedInterfaceTransportRequest::new(mei_type, data.to_vec());
         let mut buf = vec![0u8; 2 + data.len()];
         let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
-        let pdu = self.dispatch(slave, &buf[..n]).await?;
+        let pdu = self.dispatch(unit_id, &buf[..n]).await?;
         let resp = EncapsulatedInterfaceTransportResponse::decode(&pdu).map_err(ClientError::Decode)?;
         Ok((resp.mei_type, resp.data))
+    }
+}
+
+/// Asynchronous RTU Modbus client.
+///
+/// This is a backward-compatible newtype around [`AsyncClientCore`] paired with
+/// an asynchronous RTU ADU adapter.
+#[derive(Debug)]
+pub struct AsyncClient<T: AsyncTransport>(AsyncClientCore<AsyncRtuAduAdapter<T>>);
+
+impl<T: AsyncTransport> AsyncClient<T> {
+    /// Create a client with the default configuration.
+    pub fn new(transport: T) -> Self {
+        Self::with_config(transport, ClientConfig::default())
+    }
+
+    /// Create a client with a custom configuration.
+    pub fn with_config(transport: T, config: ClientConfig) -> Self {
+        Self(AsyncClientCore::new(AsyncRtuAduAdapter::with_config(transport, config)))
+    }
+}
+
+impl<T: AsyncTransport> Deref for AsyncClient<T> {
+    type Target = AsyncClientCore<AsyncRtuAduAdapter<T>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T: AsyncTransport> DerefMut for AsyncClient<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
@@ -425,6 +449,7 @@ mod tests {
     use super::*;
     use crate::function_codes::read_coils::{ReadCoilsRequest, ReadCoilsResponse};
     use crate::rtu::RtuAdu;
+    use crate::transport::TransportError;
     use alloc::collections::VecDeque;
     use core::time::Duration;
 

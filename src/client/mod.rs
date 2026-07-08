@@ -123,6 +123,7 @@ pub trait AduAdapter {
 
 /// Seam for asynchronous ADU framing and I/O.
 #[cfg(feature = "async")]
+#[allow(async_fn_in_trait)]
 pub trait AsyncAduAdapter {
     /// Send `request_pdu` to `unit_id` and return the response PDU.
     async fn send_receive(

@@ -10,19 +10,18 @@
 use alloc::vec::Vec;
 use core::ops::{Deref, DerefMut};
 
-use crate::ascii::AsciiAdu;
-use crate::client::{ClientConfig, ClientError};
-use crate::transport::TransportError;
+use crate::client::ClientConfig;
+use crate::macros::impl_adu_adapter;
 
 #[cfg(feature = "sync")]
-use crate::client::{AduAdapter, ClientCore};
-#[cfg(feature = "async")]
-use crate::client::{AsyncAduAdapter, AsyncClientCore};
-
-#[cfg(feature = "async")]
-use crate::transport::AsyncTransport;
+use crate::client::ClientCore;
 #[cfg(feature = "sync")]
 use crate::transport::Transport;
+
+#[cfg(feature = "async")]
+use crate::client::AsyncClientCore;
+#[cfg(feature = "async")]
+use crate::transport::AsyncTransport;
 
 /// Configuration for a synchronous and asynchronous ASCII client.
 pub type AsciiClientConfig = crate::client::ClientConfig;
@@ -30,49 +29,13 @@ pub type AsciiClientConfig = crate::client::ClientConfig;
 /// Errors that can occur while using the ASCII client.
 pub type AsciiClientError = crate::client::ClientError;
 
-/// Synchronous ASCII ADU adapter.
 #[cfg(feature = "sync")]
-#[derive(Debug)]
-pub struct AsciiAduAdapter<T: Transport> {
-    transport: T,
-    config: ClientConfig,
-}
-
-#[cfg(feature = "sync")]
-impl<T: Transport> AsciiAduAdapter<T> {
-    /// Create an adapter with the default configuration.
-    pub fn new(transport: T) -> Self {
-        Self::with_config(transport, ClientConfig::default())
-    }
-
-    /// Create an adapter with a custom configuration.
-    pub fn with_config(transport: T, config: ClientConfig) -> Self {
-        Self { transport, config }
-    }
-}
-
-#[cfg(feature = "sync")]
-impl<T: Transport> AduAdapter for AsciiAduAdapter<T> {
-    fn send_receive(&mut self, unit_id: u8, request_pdu: &[u8]) -> Result<Vec<u8>, ClientError> {
-        let adu = AsciiAdu::new(unit_id, request_pdu.to_vec());
-        let mut tx = [0u8; 512];
-        let n = adu.encode(&mut tx).map_err(ClientError::Encode)?;
-        self.transport.send(&tx[..n])?;
-
-        let mut rx = [0u8; 512];
-        let m = self.transport.recv(&mut rx, self.config.timeout)?;
-        if m == 0 {
-            return Err(ClientError::Transport(TransportError::Disconnected));
-        }
-        let response = AsciiAdu::decode(&rx[..m]).map_err(ClientError::Decode)?;
-        if response.address != unit_id {
-            return Err(ClientError::InvalidResponse);
-        }
-        if response.pdu.is_empty() {
-            return Err(ClientError::InvalidResponse);
-        }
-        Ok(response.pdu)
-    }
+impl_adu_adapter! {
+    [] [],
+    /// Synchronous ASCII ADU adapter.
+    AsciiAduAdapter,
+    crate::ascii::AsciiAdu,
+    no_transaction
 }
 
 /// A synchronous ASCII Modbus client.
@@ -116,7 +79,7 @@ mod tests {
     use super::*;
     use crate::ascii::AsciiAdu;
     use crate::server::{DataStore, MemoryStore, Server};
-    use crate::transport::Transport;
+    use crate::transport::{Transport, TransportError};
     use crate::{ExceptionResponse, ReadCoilsRequest, ReadCoilsResponse};
     use core::time::Duration;
 
@@ -269,53 +232,13 @@ mod tests {
     }
 }
 
-/// Asynchronous ASCII ADU adapter.
 #[cfg(feature = "async")]
-#[derive(Debug)]
-pub struct AsyncAsciiAduAdapter<T: AsyncTransport> {
-    transport: T,
-    config: ClientConfig,
-}
-
-#[cfg(feature = "async")]
-impl<T: AsyncTransport> AsyncAsciiAduAdapter<T> {
-    /// Create an adapter with the default configuration.
-    pub fn new(transport: T) -> Self {
-        Self::with_config(transport, ClientConfig::default())
-    }
-
-    /// Create an adapter with a custom configuration.
-    pub fn with_config(transport: T, config: ClientConfig) -> Self {
-        Self { transport, config }
-    }
-}
-
-#[cfg(feature = "async")]
-impl<T: AsyncTransport> AsyncAduAdapter for AsyncAsciiAduAdapter<T> {
-    async fn send_receive(
-        &mut self,
-        unit_id: u8,
-        request_pdu: &[u8],
-    ) -> Result<Vec<u8>, ClientError> {
-        let adu = AsciiAdu::new(unit_id, request_pdu.to_vec());
-        let mut tx = [0u8; 512];
-        let n = adu.encode(&mut tx).map_err(ClientError::Encode)?;
-        self.transport.send(&tx[..n]).await?;
-
-        let mut rx = [0u8; 512];
-        let m = self.transport.recv(&mut rx, self.config.timeout).await?;
-        if m == 0 {
-            return Err(ClientError::Transport(TransportError::Disconnected));
-        }
-        let response = AsciiAdu::decode(&rx[..m]).map_err(ClientError::Decode)?;
-        if response.address != unit_id {
-            return Err(ClientError::InvalidResponse);
-        }
-        if response.pdu.is_empty() {
-            return Err(ClientError::InvalidResponse);
-        }
-        Ok(response.pdu)
-    }
+impl_adu_adapter! {
+    [async] [.await],
+    /// Asynchronous ASCII ADU adapter.
+    AsyncAsciiAduAdapter,
+    crate::ascii::AsciiAdu,
+    no_transaction
 }
 
 /// An asynchronous ASCII Modbus client.
@@ -359,7 +282,7 @@ mod async_tests {
     use super::*;
     use crate::ascii::AsciiAdu;
     use crate::server::{DataStore, MemoryStore, Server};
-    use crate::transport::AsyncTransport;
+    use crate::transport::{AsyncTransport, TransportError};
     use crate::{ExceptionResponse, ReadCoilsRequest, ReadCoilsResponse};
     use alloc::collections::VecDeque;
     use core::time::Duration;

@@ -148,6 +148,28 @@ impl<D: DataStore> TcpServer<D> {
         }
     }
 
+    /// Continuously serve TLS-wrapped TCP connections on `listener`.
+    ///
+    /// Each accepted TCP connection is upgraded with `tls_config` before being
+    /// dispatched. The function returns when the listener is closed or an
+    /// unrecoverable error occurs.
+    #[cfg(feature = "tls")]
+    pub fn serve_tls(
+        &mut self,
+        listener: std::net::TcpListener,
+        unit_id: u8,
+        tls_config: std::sync::Arc<rustls::ServerConfig>,
+    ) -> Result<(), TcpServerError> {
+        for stream in listener.incoming() {
+            let stream = stream?;
+            let conn = rustls::ServerConnection::new(tls_config.clone())
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+            let mut tls = rustls::StreamOwned::new(conn, stream);
+            self.serve(&mut tls, unit_id)?;
+        }
+        Ok(())
+    }
+
     fn read_adu<T: Read>(&mut self, stream: &mut T) -> Result<TcpAdu, TcpServerError> {
         let mut header = [0u8; TcpAdu::HEADER_SIZE];
         read_all(stream, &mut header)?;
@@ -415,6 +437,29 @@ impl<D: DataStore> AsyncTcpServer<D> {
                 Err(TcpServerError::Disconnected) => return Ok(()),
                 Err(e) => return Err(e),
             }
+        }
+    }
+
+    /// Continuously serve TLS-wrapped TCP connections on `listener`.
+    ///
+    /// Each accepted TCP connection is upgraded with `tls_config` before being
+    /// dispatched. The function returns when the listener is closed or an
+    /// unrecoverable error occurs.
+    #[cfg(feature = "tls")]
+    pub async fn serve_tls(
+        &mut self,
+        listener: tokio::net::TcpListener,
+        unit_id: u8,
+        tls_config: std::sync::Arc<tokio_rustls::rustls::ServerConfig>,
+    ) -> Result<(), TcpServerError> {
+        let acceptor = tokio_rustls::TlsAcceptor::from(tls_config);
+        loop {
+            let (stream, _) = listener.accept().await?;
+            let mut tls = acceptor
+                .accept(stream)
+                .await
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+            self.serve(&mut tls, unit_id).await?;
         }
     }
 

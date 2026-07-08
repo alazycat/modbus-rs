@@ -94,8 +94,7 @@ fn read_all<T: Read>(stream: &mut T, buf: &mut [u8]) -> Result<(), TransportErro
             Ok(0) => return Err(TransportError::Disconnected),
             Ok(n) => pos += n,
             Err(e)
-                if e.kind() == io::ErrorKind::WouldBlock
-                    || e.kind() == io::ErrorKind::TimedOut =>
+                if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut =>
             {
                 return Err(TransportError::Timeout);
             }
@@ -138,7 +137,10 @@ impl<T> AsyncTcpTransport<T> {
 #[cfg(feature = "async")]
 impl<T: AsyncReadExt + AsyncWriteExt + Unpin + Send> AsyncTransport for AsyncTcpTransport<T> {
     async fn send(&mut self, data: &[u8]) -> Result<(), TransportError> {
-        self.stream.write_all(data).await.map_err(TransportError::Io)?;
+        self.stream
+            .write_all(data)
+            .await
+            .map_err(TransportError::Io)?;
         self.stream.flush().await.map_err(TransportError::Io)
     }
 
@@ -162,7 +164,12 @@ impl<T: AsyncReadExt + AsyncWriteExt + Unpin + Send> AsyncTransport for AsyncTcp
         }
 
         buf[..TcpAdu::HEADER_SIZE].copy_from_slice(&header);
-        read_all_async(&mut self.stream, &mut buf[TcpAdu::HEADER_SIZE..frame_len], timeout).await?;
+        read_all_async(
+            &mut self.stream,
+            &mut buf[TcpAdu::HEADER_SIZE..frame_len],
+            timeout,
+        )
+        .await?;
         Ok(frame_len)
     }
 }
@@ -184,6 +191,23 @@ async fn read_all_async<T: AsyncReadExt + Unpin>(
     }
     Ok(())
 }
+
+/// An asynchronous TLS transport wrapping a [`tokio_rustls::client::TlsStream`].
+///
+/// Because TLS only changes the byte stream, this is a type alias around the
+/// TCP framer. It is available when the `tls` feature is enabled.
+#[cfg(feature = "tls")]
+pub type AsyncTlsTransport<T = tokio::net::TcpStream> =
+    AsyncTcpTransport<tokio_rustls::client::TlsStream<T>>;
+
+/// A synchronous TLS transport wrapping a [`rustls::StreamOwned`].
+///
+/// Because TLS only changes the byte stream, this is a type alias around the
+/// TCP framer. It is available when both the `tls` and `sync` features are
+/// enabled.
+#[cfg(all(feature = "tls", feature = "sync"))]
+pub type TlsTransport<T = std::net::TcpStream> =
+    TcpTransport<rustls::StreamOwned<rustls::ClientConnection, T>>;
 
 #[cfg(all(test, feature = "sync"))]
 mod tests {
@@ -248,9 +272,7 @@ mod tests {
         transport.send(&encoded_request[..n]).unwrap();
 
         let mut buf = [0u8; 64];
-        let received = transport
-            .recv(&mut buf, Duration::from_millis(10))
-            .unwrap();
+        let received = transport.recv(&mut buf, Duration::from_millis(10)).unwrap();
         let decoded = TcpAdu::decode(&buf[..received]).unwrap();
         assert_eq!(decoded, response);
         assert!(!transport.stream().write_buf.is_empty());

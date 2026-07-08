@@ -34,6 +34,12 @@ name = "modbus-cli"
 path = "src/bin/modbus_cli.rs"
 required-features = ["cli"]
 
+[[test]]
+name = "tls_integration"
+path = "tests/tls_integration.rs"
+required-features = ["sync", "tcp", "tls"]
+
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
 tokio-test = "0.4"
+rcgen = "0.13"

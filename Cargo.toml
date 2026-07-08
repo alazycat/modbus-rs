@@ -16,10 +16,15 @@ serial = ["rtu", "async", "dep:tokio-serial"]
 helpers = []
 cli = ["std", "async", "tcp", "rtu", "serial", "dep:clap", "dep:tracing", "dep:tracing-subscriber"]
 loopback-tests = ["rtu", "ascii", "serial"]
+tls = ["std", "tcp", "async", "dep:tokio-rustls", "dep:rustls"]
+sync-serial = ["std", "sync", "dep:serialport"]
 
 [dependencies]
 tokio = { version = "1", features = ["net", "rt", "rt-multi-thread", "io-util", "time", "macros"], optional = true }
+tokio-rustls = { version = "0.26", optional = true, features = ["ring"] }
+rustls = { version = "0.23", optional = true, features = ["ring"] }
 tokio-serial = { version = "5", optional = true }
+serialport = { version = "4", optional = true }
 clap = { version = "4", features = ["derive"], optional = true }
 tracing = { version = "0.1", optional = true }
 tracing-subscriber = { version = "0.3", optional = true }

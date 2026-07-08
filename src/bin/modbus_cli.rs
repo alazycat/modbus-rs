@@ -357,6 +357,7 @@ async fn run_client(args: ClientArgs) -> Result<(), Box<dyn std::error::Error + 
             let stream = TcpStream::connect(addr).await?;
             let config = TcpClientConfig {
                 timeout: Duration::from_secs(tcp.timeout),
+                ..Default::default()
             };
             let mut client = AsyncTcpClient::with_config(AsyncTcpTransport::new(stream), config);
             execute_client_op(&mut client, tcp.unit_id, tcp.op).await?;
@@ -366,6 +367,7 @@ async fn run_client(args: ClientArgs) -> Result<(), Box<dyn std::error::Error + 
             let transport = open_serial_rtu(&rtu.path, rtu.baud).await?;
             let config = ClientConfig {
                 timeout: Duration::from_secs(rtu.timeout),
+                ..Default::default()
             };
             let mut client = AsyncClient::with_config(transport, config);
             execute_client_op(&mut client, rtu.slave_id, rtu.op).await?;

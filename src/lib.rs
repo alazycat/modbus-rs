@@ -59,6 +59,9 @@ pub mod udp_server;
 #[cfg(any(feature = "sync", feature = "async"))]
 pub mod transport;
 
+#[cfg(feature = "sync-serial")]
+pub mod serial_transport;
+
 #[cfg(any(feature = "sync", feature = "async"))]
 pub mod client;
 

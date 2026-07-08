@@ -52,9 +52,10 @@ impl<T: Transport> AsciiClient<T> {
 
     /// Create a client with a custom configuration.
     pub fn with_config(transport: T, config: AsciiClientConfig) -> Self {
-        Self(ClientCore::new(AsciiAduAdapter::with_config(
-            transport, config,
-        )))
+        Self(ClientCore::with_config(
+            AsciiAduAdapter::with_config(transport, config),
+            config,
+        ))
     }
 }
 
@@ -71,6 +72,31 @@ impl<T: Transport> Deref for AsciiClient<T> {
 impl<T: Transport> DerefMut for AsciiClient<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+#[cfg(all(feature = "ascii", feature = "sync-serial"))]
+impl
+    AsciiClient<
+        crate::ascii_transport::AsciiTransport<
+            crate::serial_transport::SerialTransport<Box<dyn serialport::SerialPort>>,
+        >,
+    >
+{
+    /// Open a local serial port and return an ASCII client.
+    ///
+    /// `path` is the platform-specific serial device name (e.g. `/dev/ttyUSB0`
+    /// on Linux or `COM3` on Windows). The port is configured for 8 data bits,
+    /// no parity, 1 stop bit, and a 100 ms read timeout.
+    pub fn connect_serial_ascii(
+        path: impl AsRef<std::path::Path>,
+        baud_rate: u32,
+        config: AsciiClientConfig,
+    ) -> Result<Self, AsciiClientError> {
+        let serial = crate::serial_transport::open_serial_port(path, baud_rate)
+            .map_err(|e| AsciiClientError::Transport(crate::transport::TransportError::Io(e.into())))?;
+        let transport = crate::ascii_transport::AsciiTransport::new(serial);
+        Ok(Self::with_config(transport, config))
     }
 }
 
@@ -255,9 +281,10 @@ impl<T: AsyncTransport> AsyncAsciiClient<T> {
 
     /// Create a client with a custom configuration.
     pub fn with_config(transport: T, config: AsciiClientConfig) -> Self {
-        Self(AsyncClientCore::new(AsyncAsciiAduAdapter::with_config(
-            transport, config,
-        )))
+        Self(AsyncClientCore::with_config(
+            AsyncAsciiAduAdapter::with_config(transport, config),
+            config,
+        ))
     }
 }
 

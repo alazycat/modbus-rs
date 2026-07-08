@@ -74,6 +74,11 @@ cargo test --all-features
 cargo clippy --all-features -- -D warnings
 ```
 
+## Documentation
+
+- [`docs/comparison-with-modbus-go.md`](docs/comparison-with-modbus-go.md) —
+  comparison with the Go `modbus-go` implementation and the project roadmap.
+
 ## License
 
 MIT

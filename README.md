@@ -49,6 +49,7 @@ cargo build --example rtu_over_tcp_server --features async,rtu,tcp
 cargo build --example tls_client --features async,tcp,tls
 cargo build --example tls_server --features async,tcp,tls
 cargo build --example typed_helpers --features sync,tcp,helpers
+cargo build --example custom_data_store --features sync,tcp,config
 cargo build --example logging_hook --features sync,tcp
 cargo build --example config_client --features config,sync,tcp
 cargo build --example config_server --features config,async,tcp

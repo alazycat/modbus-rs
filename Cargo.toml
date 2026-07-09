@@ -100,6 +100,10 @@ name = "typed_helpers"
 required-features = ["sync", "tcp", "helpers"]
 
 [[example]]
+name = "custom_data_store"
+required-features = ["sync", "tcp", "config"]
+
+[[example]]
 name = "config_client"
 required-features = ["config", "sync", "tcp"]
 

@@ -91,13 +91,11 @@ Runtime resilience features:
 ## Remaining gaps
 
 The core feature set is now on par with `modbus-go`. The remaining work is
-ecosystem polish rather than functional parity:
+release polish rather than functional parity:
 
-1. **Pluggable `DataStore` examples**: the trait is public, but the crate ships
-   only `MemoryStore` and `SharedStore`. A file-backed or Redis-backed example
-   would demonstrate the seam.
-2. **crates.io release**: package metadata and `--dry-run` are clean, and the
-   repository is tagged. The final step is publishing to crates.io and
+1. **crates.io release**: package metadata and `--dry-run` are clean, the
+   repository is tagged, and `examples/custom_data_store.rs` demonstrates the
+   pluggable `DataStore` seam. The final step is publishing to crates.io and
    announcing `0.2.0`.
 
 Items recently resolved:
@@ -106,6 +104,9 @@ Items recently resolved:
   compiling example in `examples/`.
 - **Loopback test matrix**: `tests/loopback.rs` covers all sync/async ×
   RTU/TCP/UDP/ASCII combinations using in-memory loopback transports.
+- **Pluggable `DataStore` example**: `examples/custom_data_store.rs` shows a
+  file-backed `DataStore` implementation that persists the four Modbus tables
+  to JSON.
 
 ## Sources
 

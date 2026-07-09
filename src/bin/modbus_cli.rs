@@ -15,14 +15,27 @@ use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 use tokio::net::{TcpListener, TcpStream};
+#[cfg(feature = "udp")]
+use tokio::net::UdpSocket;
 use tracing::{error, info};
 
 use modbus::client::{AsyncClient, ClientConfig};
+#[cfg(feature = "ascii")]
+use modbus::{
+    ascii_client::AsyncAsciiClient, ascii_server::AsyncAsciiServer,
+    ascii_transport::AsyncAsciiTransport,
+};
 use modbus::rtu_transport::open_serial_rtu;
+#[cfg(all(feature = "rtu", feature = "tcp"))]
+use modbus::rtu_over_tcp_server::AsyncRtuOverTcpServer;
 use modbus::server::{MemoryStore, SharedStore};
 use modbus::tcp_client::{AsyncTcpClient, TcpClientConfig};
 use modbus::tcp_server::AsyncTcpServer;
 use modbus::tcp_transport::AsyncTcpTransport;
+#[cfg(feature = "udp")]
+use modbus::{
+    udp_client::AsyncUdpClient, udp_server::AsyncUdpServer, udp_transport::AsyncUdpTransport,
+};
 use modbus::AsyncServer;
 
 #[derive(Parser)]
@@ -54,6 +67,14 @@ enum ClientTransport {
     Tcp(TcpClientArgs),
     /// Connect over Modbus RTU via a serial port.
     Rtu(RtuClientArgs),
+    /// Connect over Modbus RTU wrapped in a TCP stream.
+    RtuOverTcp(RtuOverTcpClientArgs),
+    /// Connect over Modbus UDP.
+    #[cfg(feature = "udp")]
+    Udp(UdpClientArgs),
+    /// Connect over Modbus ASCII via a TCP stream.
+    #[cfg(feature = "ascii")]
+    Ascii(AsciiClientArgs),
 }
 
 #[derive(Parser)]
@@ -90,6 +111,74 @@ struct TcpClientArgs {
     #[cfg(feature = "tls")]
     #[arg(long, value_name = "PATH")]
     tls_key: Option<PathBuf>,
+
+    #[command(subcommand)]
+    op: ClientOp,
+}
+
+#[derive(Parser)]
+struct RtuOverTcpClientArgs {
+    /// Server host.
+    #[arg(short = 'H', long, default_value = "127.0.0.1")]
+    host: String,
+
+    /// Server port.
+    #[arg(short, long, default_value = "502")]
+    port: u16,
+
+    /// Modbus unit ID.
+    #[arg(short, long, default_value = "1", value_parser = parse_u8)]
+    unit_id: u8,
+
+    /// Response timeout in seconds.
+    #[arg(long, default_value = "5")]
+    timeout: u64,
+
+    #[command(subcommand)]
+    op: ClientOp,
+}
+
+#[derive(Parser)]
+#[cfg(feature = "udp")]
+struct UdpClientArgs {
+    /// Server host.
+    #[arg(short = 'H', long, default_value = "127.0.0.1")]
+    host: String,
+
+    /// Server port.
+    #[arg(short, long, default_value = "502")]
+    port: u16,
+
+    /// Modbus unit ID.
+    #[arg(short, long, default_value = "1", value_parser = parse_u8)]
+    unit_id: u8,
+
+    /// Response timeout in seconds.
+    #[arg(long, default_value = "5")]
+    timeout: u64,
+
+    #[command(subcommand)]
+    op: ClientOp,
+}
+
+#[derive(Parser)]
+#[cfg(feature = "ascii")]
+struct AsciiClientArgs {
+    /// Server host.
+    #[arg(short = 'H', long, default_value = "127.0.0.1")]
+    host: String,
+
+    /// Server port.
+    #[arg(short, long, default_value = "502")]
+    port: u16,
+
+    /// Modbus slave ID.
+    #[arg(short, long, default_value = "1", value_parser = parse_u8)]
+    slave_id: u8,
+
+    /// Response timeout in seconds.
+    #[arg(long, default_value = "5")]
+    timeout: u64,
 
     #[command(subcommand)]
     op: ClientOp,
@@ -169,6 +258,14 @@ enum ServerTransport {
     Tcp(TcpServerArgs),
     /// Listen on Modbus RTU via a serial port.
     Rtu(RtuServerArgs),
+    /// Listen on Modbus RTU wrapped in a TCP stream.
+    RtuOverTcp(RtuOverTcpServerArgs),
+    /// Listen on Modbus UDP.
+    #[cfg(feature = "udp")]
+    Udp(UdpServerArgs),
+    /// Listen on Modbus ASCII via a TCP stream.
+    #[cfg(feature = "ascii")]
+    Ascii(AsciiServerArgs),
 }
 
 #[derive(Parser)]
@@ -211,6 +308,89 @@ struct TcpServerArgs {
     #[cfg(feature = "tls")]
     #[arg(long, value_name = "PATH")]
     tls_key: Option<PathBuf>,
+}
+
+#[derive(Parser)]
+struct RtuOverTcpServerArgs {
+    /// Bind address.
+    #[arg(short, long, default_value = "127.0.0.1:502")]
+    bind: SocketAddr,
+
+    /// Modbus unit ID.
+    #[arg(short, long, default_value = "1", value_parser = parse_u8)]
+    unit_id: u8,
+
+    /// Number of coils.
+    #[arg(long, default_value = "0", value_parser = parse_u16)]
+    coils: u16,
+
+    /// Number of discrete inputs.
+    #[arg(long, default_value = "0", value_parser = parse_u16)]
+    discrete_inputs: u16,
+
+    /// Number of holding registers.
+    #[arg(long, default_value = "0", value_parser = parse_u16)]
+    holding_registers: u16,
+
+    /// Number of input registers.
+    #[arg(long, default_value = "0", value_parser = parse_u16)]
+    input_registers: u16,
+}
+
+#[derive(Parser)]
+#[cfg(feature = "udp")]
+struct UdpServerArgs {
+    /// Bind address.
+    #[arg(short, long, default_value = "127.0.0.1:502")]
+    bind: SocketAddr,
+
+    /// Modbus unit ID.
+    #[arg(short, long, default_value = "1", value_parser = parse_u8)]
+    unit_id: u8,
+
+    /// Number of coils.
+    #[arg(long, default_value = "0", value_parser = parse_u16)]
+    coils: u16,
+
+    /// Number of discrete inputs.
+    #[arg(long, default_value = "0", value_parser = parse_u16)]
+    discrete_inputs: u16,
+
+    /// Number of holding registers.
+    #[arg(long, default_value = "0", value_parser = parse_u16)]
+    holding_registers: u16,
+
+    /// Number of input registers.
+    #[arg(long, default_value = "0", value_parser = parse_u16)]
+    input_registers: u16,
+}
+
+#[derive(Parser)]
+#[cfg(feature = "ascii")]
+struct AsciiServerArgs {
+    /// Bind address.
+    #[arg(short, long, default_value = "127.0.0.1:502")]
+    bind: SocketAddr,
+
+    /// Modbus slave ID.
+    #[arg(short, long, default_value = "1", value_parser = parse_u8)]
+    slave_id: u8,
+
+    /// Number of coils.
+    #[arg(long, default_value = "0", value_parser = parse_u16)]
+    coils: u16,
+
+    /// Number of discrete inputs.
+    #[arg(long, default_value = "0", value_parser = parse_u16)]
+    discrete_inputs: u16,
+
+    /// Number of holding registers.
+    #[arg(long, default_value = "0", value_parser = parse_u16)]
+    holding_registers: u16,
+
+    /// Number of input registers.
+    #[arg(long, default_value = "0", value_parser = parse_u16)]
+    input_registers: u16,
 }
 
 #[derive(Parser)]
@@ -324,6 +504,42 @@ async fn run_client(args: ClientArgs) -> Result<(), Box<dyn std::error::Error + 
             };
             let mut client = AsyncClient::with_config(transport, config);
             execute_client_op(&mut client, rtu.slave_id, rtu.op).await?;
+        }
+        ClientTransport::RtuOverTcp(rtu) => {
+            let addr: SocketAddr = format!("{}:{}", rtu.host, rtu.port).parse()?;
+            info!("connecting RTU-over-TCP to {}:{}", rtu.host, rtu.port);
+            let config = ClientConfig {
+                timeout: Duration::from_secs(rtu.timeout),
+                ..Default::default()
+            };
+            let mut client = AsyncClient::connect_rtu_over_tcp(addr, config).await?;
+            execute_client_op(&mut client, rtu.unit_id, rtu.op).await?;
+        }
+        #[cfg(feature = "udp")]
+        ClientTransport::Udp(udp) => {
+            let remote: SocketAddr = format!("{}:{}", udp.host, udp.port).parse()?;
+            info!("binding UDP client and targeting {}:{}", udp.host, udp.port);
+            let socket = UdpSocket::bind("0.0.0.0:0").await?;
+            let transport = AsyncUdpTransport::new(socket, remote);
+            let config = ClientConfig {
+                timeout: Duration::from_secs(udp.timeout),
+                ..Default::default()
+            };
+            let mut client = AsyncUdpClient::with_config(transport, config);
+            execute_client_op(&mut client, udp.unit_id, udp.op).await?;
+        }
+        #[cfg(feature = "ascii")]
+        ClientTransport::Ascii(ascii) => {
+            let addr: SocketAddr = format!("{}:{}", ascii.host, ascii.port).parse()?;
+            info!("connecting ASCII-over-TCP to {}:{}", ascii.host, ascii.port);
+            let stream = TcpStream::connect(addr).await?;
+            let transport = AsyncAsciiTransport::new(stream);
+            let config = ClientConfig {
+                timeout: Duration::from_secs(ascii.timeout),
+                ..Default::default()
+            };
+            let mut client = AsyncAsciiClient::with_config(transport, config);
+            execute_client_op(&mut client, ascii.slave_id, ascii.op).await?;
         }
     }
     Ok(())
@@ -453,10 +669,97 @@ where
     }
 }
 
+#[cfg(feature = "udp")]
+impl<T> ClientMethods<modbus::client::ClientError> for AsyncUdpClient<T>
+where
+    T: modbus::transport::AsyncTransport + Send,
+{
+    async fn read_coils(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        quantity: u16,
+    ) -> Result<Vec<u8>, modbus::client::ClientError> {
+        (**self).read_coils(unit_id, address, quantity).await
+    }
+    async fn read_holding_registers(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        quantity: u16,
+    ) -> Result<Vec<u8>, modbus::client::ClientError> {
+        (**self)
+            .read_holding_registers(unit_id, address, quantity)
+            .await
+    }
+    async fn write_coil(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: bool,
+    ) -> Result<(), modbus::client::ClientError> {
+        (**self).write_coil(unit_id, address, value).await
+    }
+    async fn write_register(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: u16,
+    ) -> Result<(), modbus::client::ClientError> {
+        (**self).write_register(unit_id, address, value).await
+    }
+}
+
+#[cfg(feature = "ascii")]
+impl<T> ClientMethods<modbus::client::ClientError> for AsyncAsciiClient<T>
+where
+    T: modbus::transport::AsyncTransport + Send,
+{
+    async fn read_coils(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        quantity: u16,
+    ) -> Result<Vec<u8>, modbus::client::ClientError> {
+        (**self).read_coils(unit_id, address, quantity).await
+    }
+    async fn read_holding_registers(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        quantity: u16,
+    ) -> Result<Vec<u8>, modbus::client::ClientError> {
+        (**self)
+            .read_holding_registers(unit_id, address, quantity)
+            .await
+    }
+    async fn write_coil(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: bool,
+    ) -> Result<(), modbus::client::ClientError> {
+        (**self).write_coil(unit_id, address, value).await
+    }
+    async fn write_register(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: u16,
+    ) -> Result<(), modbus::client::ClientError> {
+        (**self).write_register(unit_id, address, value).await
+    }
+}
+
 async fn run_server(args: ServerArgs) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     match args.transport {
         ServerTransport::Tcp(tcp) => run_tcp_server(tcp).await,
         ServerTransport::Rtu(rtu) => run_rtu_server(rtu).await,
+        ServerTransport::RtuOverTcp(rtu) => run_rtu_over_tcp_server(rtu).await,
+        #[cfg(feature = "udp")]
+        ServerTransport::Udp(udp) => run_udp_server(udp).await,
+        #[cfg(feature = "ascii")]
+        ServerTransport::Ascii(ascii) => run_ascii_server(ascii).await,
     }
 }
 
@@ -524,6 +827,69 @@ async fn run_rtu_server(
     info!("RTU server serving slave {}", args.slave_id);
     server.serve(&mut stream, args.slave_id).await?;
     Ok(())
+}
+
+async fn run_rtu_over_tcp_server(
+    args: RtuOverTcpServerArgs,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let store = SharedStore::new(MemoryStore::new(
+        args.coils,
+        args.discrete_inputs,
+        args.holding_registers,
+        args.input_registers,
+    ));
+
+    let listener = TcpListener::bind(args.bind).await?;
+    info!("RTU-over-TCP server listening on {}", args.bind);
+
+    let mut server = AsyncRtuOverTcpServer::new(store);
+    server.serve(listener, args.unit_id).await?;
+    Ok(())
+}
+
+#[cfg(feature = "udp")]
+async fn run_udp_server(
+    args: UdpServerArgs,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let store = SharedStore::new(MemoryStore::new(
+        args.coils,
+        args.discrete_inputs,
+        args.holding_registers,
+        args.input_registers,
+    ));
+
+    let socket = UdpSocket::bind(args.bind).await?;
+    info!("UDP server listening on {}", args.bind);
+
+    let mut server = AsyncUdpServer::new(store);
+    server.serve(&socket, args.unit_id).await?;
+    Ok(())
+}
+
+#[cfg(feature = "ascii")]
+async fn run_ascii_server(
+    args: AsciiServerArgs,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let store = SharedStore::new(MemoryStore::new(
+        args.coils,
+        args.discrete_inputs,
+        args.holding_registers,
+        args.input_registers,
+    ));
+
+    let listener = TcpListener::bind(args.bind).await?;
+    info!("ASCII-over-TCP server listening on {}", args.bind);
+
+    loop {
+        let (mut stream, peer) = listener.accept().await?;
+        let mut server = AsyncAsciiServer::new(store.clone());
+        info!("accepted ASCII connection from {}", peer);
+        tokio::spawn(async move {
+            if let Err(e) = server.serve(&mut stream, args.slave_id).await {
+                error!("ASCII connection from {} failed: {}", peer, e);
+            }
+        });
+    }
 }
 
 fn format_hex(bytes: &[u8]) -> String {

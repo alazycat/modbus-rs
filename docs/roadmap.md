@@ -320,14 +320,14 @@ TCP client and TCP server modes.
 framing modes.
 
 **Acceptance criteria:**
-- [ ] RTU-over-TCP client/server subcommands exist.
-- [ ] UDP client/server subcommands exist.
-- [ ] ASCII client/server subcommands exist (serial + stream where applicable).
+- [x] RTU-over-TCP client/server subcommands exist.
+- [x] UDP client/server subcommands exist.
+- [x] ASCII client/server subcommands exist (serial + stream where applicable).
 
 **Verification:**
-- [ ] `cargo build --bin modbus-cli --features cli,rtu,tcp` succeeds.
-- [ ] `cargo build --bin modbus-cli --features cli,udp` succeeds.
-- [ ] `cargo build --bin modbus-cli --features cli,ascii` succeeds.
+- [x] `cargo build --bin modbus-cli --features cli,rtu,tcp` succeeds.
+- [x] `cargo build --bin modbus-cli --features cli,udp` succeeds.
+- [x] `cargo build --bin modbus-cli --features cli,ascii` succeeds.
 
 **Dependencies:** None
 

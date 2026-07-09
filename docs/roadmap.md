@@ -57,12 +57,12 @@ with passing tests, and leaves the crate in a working state.
 Document the decision in a short ADR or task notes.
 
 **Acceptance criteria:**
-- [ ] API shape chosen (`ClientConfig` fields vs adapter).
-- [ ] Behavior defined for TCP, RTU-over-TCP, and serial streams.
-- [ ] No breaking change to existing constructors.
+- [x] API shape chosen (`ClientConfig` fields vs adapter).
+- [x] Behavior defined for TCP, RTU-over-TCP, and serial streams.
+- [x] No breaking change to existing constructors.
 
 **Verification:**
-- [ ] Human review of the design sketch.
+- [x] Human review of the design sketch.
 
 **Dependencies:** None
 
@@ -81,15 +81,15 @@ that an idle connection is closed after the configured duration. If an adapter
 approach is chosen, implement the adapter for `std::io::Read + Write`.
 
 **Acceptance criteria:**
-- [ ] `ClientConfig` gains an optional `idle_timeout` field, or a new adapter
+- [x] `ClientConfig` gains an optional `idle_timeout` field, or a new adapter
       exists.
-- [ ] Sync TCP, RTU-over-TCP, and serial transports respect it.
-- [ ] Idle timeout maps to `TransportError::Timeout` or `Disconnected` as
+- [x] Sync TCP, RTU-over-TCP, and serial transports respect it.
+- [x] Idle timeout maps to `TransportError::Timeout` or `Disconnected` as
       appropriate.
 
 **Verification:**
-- [ ] `cargo test --features sync,tcp idle_timeout` passes.
-- [ ] `cargo test --features sync,rtu,sync-serial idle_timeout` passes.
+- [x] `cargo test --features sync,tcp idle_timeout` passes.
+- [x] `cargo test --features sync,rtu,sync-serial idle_timeout` passes.
 
 **Dependencies:** Task 1.1
 
@@ -110,12 +110,12 @@ approach is chosen, implement the adapter for `std::io::Read + Write`.
 wrapper adapter that resets an inactivity timer on every read/write.
 
 **Acceptance criteria:**
-- [ ] Async TCP, RTU-over-TCP, and serial transports respect the idle timeout.
-- [ ] Timeout behavior is consistent with sync variants.
+- [x] Async TCP, RTU-over-TCP, and serial transports respect the idle timeout.
+- [x] Timeout behavior is consistent with sync variants.
 
 **Verification:**
-- [ ] `cargo test --features async,tcp idle_timeout` passes.
-- [ ] `cargo test --features async,rtu,serial idle_timeout` passes.
+- [x] `cargo test --features async,tcp idle_timeout` passes.
+- [x] `cargo test --features async,rtu,serial idle_timeout` passes.
 
 **Dependencies:** Task 1.2
 
@@ -129,9 +129,9 @@ wrapper adapter that resets an inactivity timer on every read/write.
 ---
 
 ### Checkpoint: Runtime connectivity
-- [ ] Tasks 1.1–1.3 merged.
-- [ ] `cargo test --features "rtu sync async tcp sync-serial serial"` passes.
-- [ ] Design documented before Phase 2 starts.
+- [x] Tasks 1.1–1.3 merged.
+- [x] `cargo test --features "rtu sync async tcp sync-serial serial"` passes.
+- [x] Design documented before Phase 2 starts.
 
 ---
 

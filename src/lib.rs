@@ -14,6 +14,9 @@ pub mod config;
 #[cfg(feature = "metrics")]
 pub mod metrics;
 
+#[cfg(all(test, feature = "tracing"))]
+pub mod test_trace;
+
 #[cfg(feature = "helpers")]
 pub mod helpers;
 

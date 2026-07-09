@@ -144,7 +144,11 @@ impl<D: DataStore> Server<D> {
     /// Returns the number of bytes written to `response`.
     pub fn dispatch(&mut self, request: &[u8], response: &mut [u8]) -> Result<usize, EncodeError> {
         #[cfg(feature = "tracing")]
-        tracing::trace!(request_len = request.len(), "dispatching request");
+        tracing::trace!(
+            request_len = request.len(),
+            function_code = request.first().copied().unwrap_or(0),
+            "dispatching request"
+        );
         #[cfg(feature = "metrics")]
         if let Some(ref metrics) = self.metrics {
             metrics.record_request_received();
@@ -574,6 +578,55 @@ mod tests {
 
         assert_eq!(metrics.requests_received(), 1);
         assert_eq!(metrics.responses_sent(), 1);
+    }
+
+    #[cfg(feature = "tracing")]
+    #[test]
+    fn dispatch_emits_trace_with_function_code() {
+        use crate::test_trace::test_trace::{with_default, TraceRecorder};
+
+        let recorder = TraceRecorder::new();
+        let (n, response) = with_default(&recorder, || {
+            let mut store = MemoryStore::new(16, 0, 0, 0);
+            store.write_coils(0, &[true, false, true, true]).unwrap();
+
+            let req = ReadCoilsRequest::new(0, 8).unwrap();
+            let mut request = [0u8; 5];
+            req.encode(&mut request).unwrap();
+
+            let mut server = Server::new(store);
+            let mut response = [0u8; 512];
+            let n = server.dispatch(&request, &mut response).unwrap();
+            (n, response[..n].to_vec())
+        });
+
+        assert_eq!(n, 3);
+        assert_eq!(response, vec![0x01, 0x01, 0b00001101]);
+
+        let events = recorder.events();
+        let dispatch_event = events
+            .iter()
+            .find(|e| {
+                e.fields
+                    .iter()
+                    .any(|(k, v)| k == "message" && v == "dispatching request")
+            })
+            .expect("dispatching request trace event should be emitted");
+        assert!(
+            dispatch_event.fields.iter().any(|(k, v)| k == "function_code" && v == "1"),
+            "dispatch trace should include function_code field: {:?}",
+            dispatch_event.fields
+        );
+        assert!(
+            dispatch_event.fields.iter().any(|(k, v)| k == "function_code" && v == "1"),
+            "dispatch trace should include function_code field: {:?}",
+            dispatch_event.fields
+        );
+        assert!(
+            dispatch_event.fields.iter().any(|(k, v)| k == "function_code" && v == "1"),
+            "dispatch trace should include function_code field: {:?}",
+            dispatch_event.fields
+        );
     }
 
     #[test]

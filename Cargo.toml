@@ -2,6 +2,11 @@
 name = "modbus"
 version = "0.1.2"
 edition = "2021"
+description = "A Rust implementation of the Modbus Application Protocol with optional sync/async client and server runtimes."
+license = "MIT"
+repository = "https://github.com/alazycat/modbus-rs"
+homepage = "https://github.com/alazycat/modbus-rs"
+documentation = "https://docs.rs/modbus"
 
 [features]
 default = ["std"]
@@ -45,6 +50,42 @@ required-features = ["cli"]
 [[example]]
 name = "logging_hook"
 required-features = ["sync", "tcp"]
+
+[[example]]
+name = "tcp_client"
+required-features = ["sync", "tcp"]
+
+[[example]]
+name = "tcp_server"
+required-features = ["async", "tcp"]
+
+[[example]]
+name = "rtu_client"
+required-features = ["sync", "rtu", "sync-serial"]
+
+[[example]]
+name = "ascii_client"
+required-features = ["sync", "ascii", "sync-serial"]
+
+[[example]]
+name = "rtu_over_tcp_client"
+required-features = ["sync", "rtu", "tcp"]
+
+[[example]]
+name = "tls_client"
+required-features = ["async", "tcp", "tls"]
+
+[[example]]
+name = "typed_helpers"
+required-features = ["sync", "tcp", "helpers"]
+
+[[example]]
+name = "config_client"
+required-features = ["config", "sync", "tcp"]
+
+[[example]]
+name = "config_server"
+required-features = ["config", "async", "tcp"]
 
 [[test]]
 name = "tls_integration"

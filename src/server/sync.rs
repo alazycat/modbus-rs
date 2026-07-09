@@ -122,6 +122,13 @@ impl<D: DataStore> Server<D> {
         request: &[u8],
         response: &mut [u8],
     ) -> Result<usize, EncodeError> {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            unit_id,
+            function_code = request.first().copied().unwrap_or(0),
+            "dispatching request with hook"
+        );
+
         if let Some(ref mut hook) = self.hook {
             if let Err(exc) = hook.before_request(unit_id, request) {
                 let n = encode_exception(exc.function_code, exc.exception_code, response)?;
@@ -626,6 +633,48 @@ mod tests {
             dispatch_event.fields.iter().any(|(k, v)| k == "function_code" && v == "1"),
             "dispatch trace should include function_code field: {:?}",
             dispatch_event.fields
+        );
+    }
+
+    #[cfg(feature = "tracing")]
+    #[test]
+    fn dispatch_with_hook_emits_trace_with_unit_id_and_function_code() {
+        use crate::test_trace::test_trace::{with_default, TraceRecorder};
+
+        let recorder = TraceRecorder::new();
+        let n = with_default(&recorder, || {
+            let mut store = MemoryStore::new(16, 0, 0, 0);
+            store.write_coils(0, &[true, false, true, true]).unwrap();
+
+            let req = ReadCoilsRequest::new(0, 8).unwrap();
+            let mut request = [0u8; 5];
+            req.encode(&mut request).unwrap();
+
+            let mut server = Server::new(store);
+            let mut response = [0u8; 512];
+            server.dispatch_with_hook(0x0A, &request, &mut response).unwrap()
+        });
+
+        assert_eq!(n, 3);
+
+        let events = recorder.events();
+        let hook_event = events
+            .iter()
+            .find(|e| {
+                e.fields
+                    .iter()
+                    .any(|(k, v)| k == "message" && v == "dispatching request with hook")
+            })
+            .expect("dispatch_with_hook trace event should be emitted");
+        assert!(
+            hook_event.fields.iter().any(|(k, v)| k == "unit_id" && v == "10"),
+            "hook trace should include unit_id field: {:?}",
+            hook_event.fields
+        );
+        assert!(
+            hook_event.fields.iter().any(|(k, v)| k == "function_code" && v == "1"),
+            "hook trace should include function_code field: {:?}",
+            hook_event.fields
         );
     }
 

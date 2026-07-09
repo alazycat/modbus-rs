@@ -17,6 +17,9 @@ pub mod rtu;
 #[cfg(all(feature = "rtu", any(feature = "sync", feature = "async")))]
 pub mod rtu_transport;
 
+#[cfg(all(feature = "rtu", feature = "async"))]
+pub mod async_rtu_server;
+
 #[cfg(all(feature = "rtu", feature = "sync"))]
 pub mod rtu_server;
 
@@ -76,6 +79,9 @@ pub use server::Server;
 
 #[cfg(feature = "async")]
 pub use server::AsyncServer;
+
+#[cfg(all(feature = "rtu", feature = "async"))]
+pub use async_rtu_server::AsyncRtuServer;
 
 #[cfg(any(feature = "sync", feature = "async"))]
 pub use server::{DataStore, MemoryStore};

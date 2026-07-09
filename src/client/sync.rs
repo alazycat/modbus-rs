@@ -320,7 +320,7 @@ impl<A: AduAdapter> ClientCore<A> {
 
 #[cfg(feature = "helpers")]
 fn bytes_to_words(bytes: &[u8], endian: Endian) -> Result<Vec<u16>, ClientError> {
-    if bytes.len() % 2 != 0 {
+    if !bytes.len().is_multiple_of(2) {
         return Err(ClientError::Decode(crate::error::DecodeError::InvalidLength));
     }
     bytes

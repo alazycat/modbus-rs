@@ -163,7 +163,7 @@ impl<D: DataStore> TcpServer<D> {
         for stream in listener.incoming() {
             let stream = stream?;
             let conn = rustls::ServerConnection::new(tls_config.clone())
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+                .map_err(|e| std::io::Error::other(e.to_string()))?;
             let mut tls = rustls::StreamOwned::new(conn, stream);
             self.serve(&mut tls, unit_id)?;
         }
@@ -458,7 +458,7 @@ impl<D: DataStore> AsyncTcpServer<D> {
             let mut tls = acceptor
                 .accept(stream)
                 .await
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+                .map_err(|e| std::io::Error::other(e.to_string()))?;
             self.serve(&mut tls, unit_id).await?;
         }
     }

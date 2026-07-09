@@ -20,6 +20,7 @@ tls = ["std", "tcp", "async", "dep:tokio-rustls", "dep:rustls"]
 sync-serial = ["std", "sync", "dep:serialport"]
 config = ["std", "dep:serde", "dep:serde_json", "dep:toml", "dep:serde_yaml"]
 tracing = ["std", "dep:tracing"]
+metrics = ["std"]
 
 [dependencies]
 tokio = { version = "1", features = ["net", "rt", "rt-multi-thread", "io-util", "time", "macros"], optional = true }

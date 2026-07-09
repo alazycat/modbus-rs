@@ -353,6 +353,8 @@ macro_rules! impl_adu_adapter {
         pub struct $adapter<T: $transport> {
             transport: T,
             config: $crate::client::ClientConfig,
+            #[cfg(feature = "metrics")]
+            metrics: Option<alloc::sync::Arc<$crate::metrics::Metrics>>,
         }
 
         impl<T: $transport> $adapter<T> {
@@ -363,7 +365,18 @@ macro_rules! impl_adu_adapter {
 
             /// Create an adapter with a custom configuration.
             pub fn with_config(transport: T, config: $crate::client::ClientConfig) -> Self {
-                Self { transport, config }
+                Self {
+                    transport,
+                    config,
+                    #[cfg(feature = "metrics")]
+                    metrics: None,
+                }
+            }
+
+            /// Attach a shared [`Metrics`] instance to this adapter.
+            #[cfg(feature = "metrics")]
+            pub fn set_metrics(&mut self, metrics: alloc::sync::Arc<$crate::metrics::Metrics>) {
+                self.metrics = Some(metrics);
             }
         }
 
@@ -378,6 +391,10 @@ macro_rules! impl_adu_adapter {
                 let n = adu.encode(&mut tx).map_err($crate::client::ClientError::Encode)?;
                 #[cfg(feature = "tracing")]
                 tracing::trace!(unit_id, pdu_len = n, "sending ADU");
+                #[cfg(feature = "metrics")]
+                if let Some(ref metrics) = self.metrics {
+                    metrics.record_request_sent();
+                }
                 self.transport.send(&tx[..n]) $($await)* ?;
 
                 // Broadcast requests (unit_id == 0) are sent to all devices and
@@ -392,6 +409,10 @@ macro_rules! impl_adu_adapter {
                 let m = self.transport.recv(&mut rx, self.config.timeout) $($await)* ?;
                 #[cfg(feature = "tracing")]
                 tracing::trace!(unit_id, response_len = m, "received ADU");
+                #[cfg(feature = "metrics")]
+                if let Some(ref metrics) = self.metrics {
+                    metrics.record_response_received();
+                }
                 if m == 0 {
                     return Err($crate::client::ClientError::Transport(
                         $crate::transport::TransportError::Disconnected,
@@ -419,6 +440,8 @@ macro_rules! impl_adu_adapter {
             transport: T,
             config: $crate::client::ClientConfig,
             next_transaction_id: u16,
+            #[cfg(feature = "metrics")]
+            metrics: Option<alloc::sync::Arc<$crate::metrics::Metrics>>,
         }
 
         impl<T: $transport> $adapter<T> {
@@ -433,7 +456,15 @@ macro_rules! impl_adu_adapter {
                     transport,
                     config,
                     next_transaction_id: 1,
+                    #[cfg(feature = "metrics")]
+                    metrics: None,
                 }
+            }
+
+            /// Attach a shared [`Metrics`] instance to this adapter.
+            #[cfg(feature = "metrics")]
+            pub fn set_metrics(&mut self, metrics: alloc::sync::Arc<$crate::metrics::Metrics>) {
+                self.metrics = Some(metrics);
             }
         }
 
@@ -451,12 +482,20 @@ macro_rules! impl_adu_adapter {
                 let n = adu.encode(&mut tx).map_err($crate::client::ClientError::Encode)?;
                 #[cfg(feature = "tracing")]
                 tracing::trace!(transaction_id, unit_id, pdu_len = n, "sending ADU");
+                #[cfg(feature = "metrics")]
+                if let Some(ref metrics) = self.metrics {
+                    metrics.record_request_sent();
+                }
                 self.transport.send(&tx[..n]) $($await)* ?;
 
                 let mut rx = [0u8; 512];
                 let m = self.transport.recv(&mut rx, self.config.timeout) $($await)* ?;
                 #[cfg(feature = "tracing")]
                 tracing::trace!(transaction_id, unit_id, response_len = m, "received ADU");
+                #[cfg(feature = "metrics")]
+                if let Some(ref metrics) = self.metrics {
+                    metrics.record_response_received();
+                }
                 if m == 0 {
                     return Err($crate::client::ClientError::Transport(
                         $crate::transport::TransportError::Disconnected,

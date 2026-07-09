@@ -11,6 +11,9 @@ pub mod macros;
 #[cfg(feature = "config")]
 pub mod config;
 
+#[cfg(feature = "metrics")]
+pub mod metrics;
+
 #[cfg(feature = "helpers")]
 pub mod helpers;
 

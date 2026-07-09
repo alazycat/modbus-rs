@@ -8,7 +8,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::{DataStore, Server};
 use crate::error::{DecodeError, EncodeError};
-use crate::rtu::RtuAdu;
+use crate::rtu::{rtu_frame_len, RtuAdu, RtuFrameError};
 
 /// Errors that can occur while running the asynchronous server.
 #[derive(Debug)]
@@ -198,11 +198,12 @@ where
             }
             Ok(1) => {
                 frame.push(byte[0]);
-                if frame.len() > RtuAdu::MAX_FRAME_SIZE {
-                    return Err(AsyncServerError::Disconnected);
-                }
-                if frame.len() >= RtuAdu::MIN_FRAME_SIZE && RtuAdu::decode(&frame).is_ok() {
-                    break;
+                match rtu_frame_len(&frame) {
+                    Ok(_) => break,
+                    Err(RtuFrameError::Invalid) => {
+                        return Err(AsyncServerError::Disconnected)
+                    }
+                    Err(RtuFrameError::NeedMore) => {}
                 }
             }
             Ok(_) => unreachable!("single-byte read returned more than one byte"),

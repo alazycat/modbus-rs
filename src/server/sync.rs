@@ -589,4 +589,48 @@ mod tests {
         assert_eq!(n, 3);
         assert_eq!(response[..n], [0x01, 0x01, 0b00001101]);
     }
+
+    #[test]
+    fn hook_rejection_returns_exception_without_touching_store() {
+        use crate::server::RequestHook;
+
+        #[derive(Debug)]
+        struct RejectAll;
+
+        impl RequestHook for RejectAll {
+            fn before_request(
+                &mut self,
+                _unit_id: u8,
+                request_pdu: &[u8],
+            ) -> Result<(), ExceptionResponse> {
+                Err(ExceptionResponse::new(
+                    request_pdu[0],
+                    ExceptionCode::IllegalFunction,
+                ))
+            }
+
+            fn after_response(
+                &mut self,
+                _unit_id: u8,
+                _request_pdu: &[u8],
+                _response_pdu: &[u8],
+            ) {
+            }
+        }
+
+        let mut server = Server::new(MemoryStore::new(0, 0, 0, 0)).with_hook(Box::new(RejectAll));
+
+        let req = ReadCoilsRequest::new(0, 8).unwrap();
+        let mut request = [0u8; 5];
+        req.encode(&mut request).unwrap();
+
+        let mut response = [0u8; 512];
+        let n = server
+            .dispatch_with_hook(0x01, &request, &mut response)
+            .unwrap();
+
+        assert_eq!(n, 2);
+        assert_eq!(response[0], 0x01 | ExceptionResponse::EXCEPTION_FLAG);
+        assert_eq!(response[1], ExceptionCode::IllegalFunction as u8);
+    }
 }

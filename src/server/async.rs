@@ -275,6 +275,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn serve_one_applies_rejecting_hook() {
+        use crate::exception::{ExceptionCode, ExceptionResponse};
+        use crate::server::RequestHook;
+
+        #[derive(Debug)]
+        struct RejectAll;
+
+        impl RequestHook for RejectAll {
+            fn before_request(
+                &mut self,
+                _unit_id: u8,
+                request_pdu: &[u8],
+            ) -> Result<(), ExceptionResponse> {
+                Err(ExceptionResponse::new(
+                    request_pdu[0],
+                    ExceptionCode::IllegalFunction,
+                ))
+            }
+
+            fn after_response(
+                &mut self,
+                _unit_id: u8,
+                _request_pdu: &[u8],
+                _response_pdu: &[u8],
+            ) {
+            }
+        }
+
+        let mut server = AsyncServer::new(MemoryStore::new(0, 0, 0, 0));
+        server.server_mut().set_hook(Box::new(RejectAll));
+
+        let request = make_read_coils_adu(0x03, 0, 8);
+        let (mut client, mut server_stream) = tokio::io::duplex(1024);
+        client.write_all(&request).await.unwrap();
+        client.flush().await.unwrap();
+
+        let n = server
+            .serve_one(&mut server_stream, 0x03)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let mut rx = vec![0u8; n];
+        client.read_exact(&mut rx).await.unwrap();
+        let response = RtuAdu::decode(&rx).unwrap();
+        assert_eq!(response.address, 0x03);
+        assert_eq!(response.pdu, vec![0x81, 0x01]);
+    }
+
+    #[tokio::test]
     async fn serve_one_ignores_non_matching_address() {
         let store = MemoryStore::new(16, 0, 0, 0);
         let mut server = AsyncServer::new(store);

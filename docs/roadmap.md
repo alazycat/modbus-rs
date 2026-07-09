@@ -147,8 +147,8 @@ Decide whether hooks are async-aware, whether they can mutate requests, and how
 multiple hooks compose.
 
 **Acceptance criteria:**
-- [ ] Trait signature chosen and reviewed.
-- [ ] Composition strategy documented (single hook generic vs Vec of hooks).
+- [x] Trait signature chosen and reviewed.
+- [x] Composition strategy documented (single hook generic vs Vec of hooks).
 
 **Verification:**
 - [ ] Human review of the API sketch.
@@ -168,8 +168,8 @@ multiple hooks compose.
 implementation. Export it under the existing `server` module.
 
 **Acceptance criteria:**
-- [ ] `RequestHook` trait compiles under `sync` and `async`.
-- [ ] `NoopHook` is the default and introduces no behavior change.
+- [x] `RequestHook` trait compiles under `sync` and `async`.
+- [x] `NoopHook` is the default and introduces no behavior change.
 
 **Verification:**
 - [ ] `cargo check --features sync` succeeds.
@@ -192,9 +192,9 @@ implementation. Export it under the existing `server` module.
 `dispatch`.
 
 **Acceptance criteria:**
-- [ ] Sync server supports a hook without changing public `dispatch` signature
+- [x] Sync server supports a hook without changing public `dispatch` signature
       by default.
-- [ ] Hook rejection produces an exception response.
+- [x] Hook rejection produces an exception response.
 
 **Verification:**
 - [ ] `cargo test --features sync` passes.
@@ -215,7 +215,7 @@ implementation. Export it under the existing `server` module.
 `AsyncServer`.
 
 **Acceptance criteria:**
-- [ ] Async server supports the same hook seam.
+- [x] Async server supports the same hook seam.
 
 **Verification:**
 - [ ] `cargo test --features async` passes.
@@ -235,8 +235,8 @@ implementation. Export it under the existing `server` module.
 response. This doubles as the first non-trivial hook implementation.
 
 **Acceptance criteria:**
-- [ ] Example compiles.
-- [ ] README or example doc explains how to run it.
+- [x] Example compiles.
+- [x] README or example doc explains how to run it.
 
 **Verification:**
 - [ ] `cargo build --example logging_hook --features sync,tcp` succeeds.
@@ -251,9 +251,9 @@ response. This doubles as the first non-trivial hook implementation.
 ---
 
 ### Checkpoint: Server hooks
-- [ ] Tasks 2.1–2.5 merged.
-- [ ] `cargo test --features "sync async"` passes.
-- [ ] Hook API documented.
+- [x] Tasks 2.1–2.5 merged.
+- [x] `cargo test --features "sync async"` passes.
+- [x] Hook API documented.
 
 ---
 

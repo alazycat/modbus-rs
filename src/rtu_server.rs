@@ -10,7 +10,7 @@
 use std::io::{self, Read, Write};
 
 use crate::error::EncodeError;
-use crate::rtu::RtuAdu;
+use crate::rtu::{rtu_frame_len, RtuAdu, RtuFrameError};
 use crate::server::{DataStore, Server};
 
 /// Errors that can occur while running the RTU server.
@@ -164,11 +164,12 @@ impl<D: DataStore> RtuServer<D> {
                 }
                 Ok(1) => {
                     frame.push(byte[0]);
-                    if frame.len() > RtuAdu::MAX_FRAME_SIZE {
-                        return Err(RtuServerError::Disconnected);
-                    }
-                    if frame.len() >= RtuAdu::MIN_FRAME_SIZE && RtuAdu::decode(&frame).is_ok() {
-                        break;
+                    match rtu_frame_len(&frame) {
+                        Ok(_) => break,
+                        Err(RtuFrameError::Invalid) => {
+                            return Err(RtuServerError::Disconnected)
+                        }
+                        Err(RtuFrameError::NeedMore) => {}
                     }
                 }
                 Ok(_) => unreachable!("single-byte read returned more than one byte"),
@@ -185,6 +186,9 @@ impl<D: DataStore> RtuServer<D> {
             }
         }
 
+        if frame.len() < RtuAdu::MIN_FRAME_SIZE {
+            return Err(RtuServerError::Disconnected);
+        }
         RtuAdu::decode(&frame).map_err(|_| RtuServerError::Disconnected)
     }
 }

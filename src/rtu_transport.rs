@@ -154,7 +154,6 @@ impl<T: AsyncReadExt + AsyncWriteExt + Unpin + Send> AsyncTransport for AsyncRtu
     async fn recv(&mut self, buf: &mut [u8], timeout: Duration) -> Result<usize, TransportError> {
         let mut frame = Vec::new();
         let mut byte = [0u8; 1];
-        let mut complete = false;
         // `timeout` bounds the entire receive of one full frame, per `AsyncTransport::recv`.
         let deadline = tokio::time::Instant::now() + timeout;
 
@@ -168,12 +167,12 @@ impl<T: AsyncReadExt + AsyncWriteExt + Unpin + Send> AsyncTransport for AsyncRtu
                 }
                 Ok(Ok(1)) => {
                     frame.push(byte[0]);
-                    if frame.len() > RtuAdu::MAX_FRAME_SIZE {
-                        return Err(TransportError::Disconnected);
-                    }
-                    if frame.len() >= RtuAdu::MIN_FRAME_SIZE && RtuAdu::decode(&frame).is_ok() {
-                        complete = true;
-                        break;
+                    match rtu_frame_len(&frame) {
+                        Ok(_) => break,
+                        Err(RtuFrameError::Invalid) => {
+                            return Err(TransportError::Disconnected)
+                        }
+                        Err(RtuFrameError::NeedMore) => {}
                     }
                 }
                 Ok(Ok(_)) => unreachable!("single-byte read returned more than one byte"),
@@ -197,12 +196,10 @@ impl<T: AsyncReadExt + AsyncWriteExt + Unpin + Send> AsyncTransport for AsyncRtu
             }
         }
 
-        if !complete {
-            if frame.len() < RtuAdu::MIN_FRAME_SIZE {
-                return Err(TransportError::Disconnected);
-            }
-            RtuAdu::decode(&frame).map_err(|_| TransportError::Disconnected)?;
+        if frame.len() < RtuAdu::MIN_FRAME_SIZE {
+            return Err(TransportError::Disconnected);
         }
+        RtuAdu::decode(&frame).map_err(|_| TransportError::Disconnected)?;
 
         if buf.len() < frame.len() {
             return Err(TransportError::Disconnected);

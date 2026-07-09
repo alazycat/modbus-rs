@@ -138,17 +138,7 @@ impl<T: AsyncReadExt + AsyncWriteExt + Unpin + Send> AsyncTransport for AsyncTcp
         let mut header = [0u8; TcpAdu::HEADER_SIZE];
         read_all_async(&mut self.stream, &mut header, timeout).await?;
 
-        if u16::from_be_bytes([header[2], header[3]]) != MODBUS_PROTOCOL_ID {
-            return Err(TransportError::Disconnected);
-        }
-
-        let length = u16::from_be_bytes([header[4], header[5]]) as usize;
-        if length == 0 {
-            return Err(TransportError::Disconnected);
-        }
-        let pdu_len = length - 1;
-        let frame_len = TcpAdu::HEADER_SIZE + pdu_len;
-
+        let frame_len = tcp_frame_len(&header)?;
         if buf.len() < frame_len {
             return Err(TransportError::Disconnected);
         }

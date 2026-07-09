@@ -59,6 +59,8 @@ impl UdpTransport {
 #[cfg(feature = "sync")]
 impl Transport for UdpTransport {
     fn send(&mut self, data: &[u8]) -> Result<(), TransportError> {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(protocol = "udp", data_len = data.len(), "transport send");
         let n = self
             .socket
             .send_to(data, self.remote)
@@ -89,6 +91,8 @@ impl Transport for UdpTransport {
         if peer != self.remote {
             return Err(TransportError::Disconnected);
         }
+        #[cfg(feature = "tracing")]
+        tracing::trace!(protocol = "udp", received_len = n, "transport recv");
         Ok(n)
     }
 }
@@ -225,6 +229,8 @@ impl AsyncUdpTransport {
 #[cfg(feature = "async")]
 impl AsyncTransport for AsyncUdpTransport {
     async fn send(&mut self, data: &[u8]) -> Result<(), TransportError> {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(protocol = "udp", data_len = data.len(), "async transport send");
         let n = self
             .socket
             .send_to(data, self.remote)
@@ -249,6 +255,8 @@ impl AsyncTransport for AsyncUdpTransport {
                 if peer != self.remote {
                     return Err(TransportError::Disconnected);
                 }
+                #[cfg(feature = "tracing")]
+                tracing::trace!(protocol = "udp", received_len = n, "async transport recv");
                 Ok(n)
             }
             Ok(Err(e)) => Err(TransportError::Io(e)),

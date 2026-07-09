@@ -58,6 +58,8 @@ impl<T> RtuTransport<T> {
 #[cfg(feature = "sync")]
 impl<T: Read + Write> Transport for RtuTransport<T> {
     fn send(&mut self, data: &[u8]) -> Result<(), TransportError> {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(protocol = "rtu", data_len = data.len(), "transport send");
         self.stream.write_all(data).map_err(TransportError::Io)?;
         self.stream.flush().map_err(TransportError::Io)
     }
@@ -107,6 +109,8 @@ impl<T: Read + Write> Transport for RtuTransport<T> {
             return Err(TransportError::Disconnected);
         }
         buf[..frame.len()].copy_from_slice(&frame);
+        #[cfg(feature = "tracing")]
+        tracing::trace!(protocol = "rtu", frame_len = frame.len(), "transport recv");
         Ok(frame.len())
     }
 }
@@ -157,6 +161,8 @@ impl<T> AsyncRtuTransport<T> {
 #[cfg(feature = "async")]
 impl<T: AsyncReadExt + AsyncWriteExt + Unpin + Send> AsyncTransport for AsyncRtuTransport<T> {
     async fn send(&mut self, data: &[u8]) -> Result<(), TransportError> {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(protocol = "rtu", data_len = data.len(), "async transport send");
         self.stream
             .write_all(data)
             .await
@@ -250,6 +256,8 @@ impl<T: AsyncReadExt + AsyncWriteExt + Unpin + Send> AsyncTransport for AsyncRtu
             return Err(TransportError::Disconnected);
         }
         buf[..frame.len()].copy_from_slice(&frame);
+        #[cfg(feature = "tracing")]
+        tracing::trace!(protocol = "rtu", frame_len = frame.len(), "async transport recv");
         Ok(frame.len())
     }
 }

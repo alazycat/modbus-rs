@@ -55,6 +55,8 @@ impl<T> AsciiTransport<T> {
 #[cfg(feature = "sync")]
 impl<T: Read + Write> Transport for AsciiTransport<T> {
     fn send(&mut self, data: &[u8]) -> Result<(), TransportError> {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(protocol = "ascii", data_len = data.len(), "transport send");
         self.stream.write_all(data).map_err(TransportError::Io)?;
         self.stream.flush().map_err(TransportError::Io)
     }
@@ -113,6 +115,8 @@ impl<T: Read + Write> Transport for AsciiTransport<T> {
             return Err(TransportError::Disconnected);
         }
         buf[..frame.len()].copy_from_slice(&frame);
+        #[cfg(feature = "tracing")]
+        tracing::trace!(protocol = "ascii", frame_len = frame.len(), "transport recv");
         Ok(frame.len())
     }
 }
@@ -270,6 +274,8 @@ impl<T> AsyncAsciiTransport<T> {
 #[cfg(feature = "async")]
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> AsyncTransport for AsyncAsciiTransport<T> {
     async fn send(&mut self, data: &[u8]) -> Result<(), TransportError> {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(protocol = "ascii", data_len = data.len(), "async transport send");
         self.stream
             .write_all(data)
             .await
@@ -321,6 +327,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> AsyncTransport for AsyncAsciiTran
                     return Err(TransportError::Disconnected);
                 }
                 buf[..frame.len()].copy_from_slice(&frame);
+                #[cfg(feature = "tracing")]
+                tracing::trace!(protocol = "ascii", frame_len = frame.len(), "async transport recv");
                 Ok(frame.len())
             }
             Ok(Err(e)) => Err(e),

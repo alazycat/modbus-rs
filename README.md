@@ -39,11 +39,17 @@ See the [`examples/`](examples/) directory for minimal compiling examples:
 ```sh
 cargo build --example tcp_client --features sync,tcp
 cargo build --example tcp_server --features async,tcp
+cargo build --example async_tcp_client --features async,tcp
+cargo build --example udp_client --features sync,udp
+cargo build --example udp_server --features async,udp
 cargo build --example rtu_client --features sync,rtu,sync-serial
 cargo build --example ascii_client --features sync,ascii,sync-serial
 cargo build --example rtu_over_tcp_client --features sync,rtu,tcp
+cargo build --example rtu_over_tcp_server --features async,rtu,tcp
 cargo build --example tls_client --features async,tcp,tls
+cargo build --example tls_server --features async,tcp,tls
 cargo build --example typed_helpers --features sync,tcp,helpers
+cargo build --example logging_hook --features sync,tcp
 cargo build --example config_client --features config,sync,tcp
 cargo build --example config_server --features config,async,tcp
 ```

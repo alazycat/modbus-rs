@@ -60,6 +60,18 @@ name = "tcp_server"
 required-features = ["async", "tcp"]
 
 [[example]]
+name = "async_tcp_client"
+required-features = ["async", "tcp"]
+
+[[example]]
+name = "udp_client"
+required-features = ["sync", "udp"]
+
+[[example]]
+name = "udp_server"
+required-features = ["async", "udp"]
+
+[[example]]
 name = "rtu_client"
 required-features = ["sync", "rtu", "sync-serial"]
 
@@ -72,7 +84,15 @@ name = "rtu_over_tcp_client"
 required-features = ["sync", "rtu", "tcp"]
 
 [[example]]
+name = "rtu_over_tcp_server"
+required-features = ["async", "rtu", "tcp"]
+
+[[example]]
 name = "tls_client"
+required-features = ["async", "tcp", "tls"]
+
+[[example]]
+name = "tls_server"
 required-features = ["async", "tcp", "tls"]
 
 [[example]]

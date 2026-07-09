@@ -10,7 +10,7 @@
 
 use std::time::Duration;
 
-use crate::rtu::RtuAdu;
+use crate::rtu::{rtu_frame_len, RtuAdu, RtuFrameError};
 use crate::transport::TransportError;
 
 #[cfg(feature = "sync")]
@@ -65,19 +65,23 @@ impl<T: Read + Write> Transport for RtuTransport<T> {
     fn recv(&mut self, buf: &mut [u8], _timeout: Duration) -> Result<usize, TransportError> {
         let mut frame = Vec::new();
         let mut byte = [0u8; 1];
-        let mut complete = false;
 
         loop {
             match self.stream.read(&mut byte) {
-                Ok(0) => break,
-                Ok(1) => {
-                    frame.push(byte[0]);
-                    if frame.len() > RtuAdu::MAX_FRAME_SIZE {
+                Ok(0) => {
+                    if frame.is_empty() {
                         return Err(TransportError::Disconnected);
                     }
-                    if frame.len() >= RtuAdu::MIN_FRAME_SIZE && RtuAdu::decode(&frame).is_ok() {
-                        complete = true;
-                        break;
+                    break;
+                }
+                Ok(1) => {
+                    frame.push(byte[0]);
+                    match rtu_frame_len(&frame) {
+                        Ok(_) => break,
+                        Err(RtuFrameError::Invalid) => {
+                            return Err(TransportError::Disconnected)
+                        }
+                        Err(RtuFrameError::NeedMore) => {}
                     }
                 }
                 Ok(_) => unreachable!("single-byte read returned more than one byte"),
@@ -94,12 +98,10 @@ impl<T: Read + Write> Transport for RtuTransport<T> {
             }
         }
 
-        if !complete {
-            if frame.len() < RtuAdu::MIN_FRAME_SIZE {
-                return Err(TransportError::Disconnected);
-            }
-            RtuAdu::decode(&frame).map_err(|_| TransportError::Disconnected)?;
+        if frame.len() < RtuAdu::MIN_FRAME_SIZE {
+            return Err(TransportError::Disconnected);
         }
+        RtuAdu::decode(&frame).map_err(|_| TransportError::Disconnected)?;
 
         if buf.len() < frame.len() {
             return Err(TransportError::Disconnected);

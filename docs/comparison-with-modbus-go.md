@@ -2,7 +2,7 @@
 
 This document compares the current Rust `modbus` crate with the popular Go
 implementation **[github.com/adibhanna/modbus-go](https://github.com/adibhanna/modbus-go)**.
-The original goal was to identify functional gaps; as of version `0.1.2` the
+The original goal was to identify functional gaps; as of version `0.1.3` the
 gap inventory has flipped from "missing core features" to "missing examples
 and release polish".
 
@@ -33,7 +33,7 @@ are not covered here.
 | Observability | Optional `tracing` instrumentation across transports and servers; optional atomic `metrics` counters | Pluggable logger |
 | Target platforms | Optional `no_std` + `alloc`; `std` default | Go standard library targets |
 | CLI tool | `modbus-cli` (under `cli` feature): TCP, TLS, UDP, RTU-over-TCP, RTU/ASCII serial, typed helpers, config files | Not advertised |
-| Maturity | Version `0.1.2`, active development | Advertised as production-ready |
+| Maturity | Version `0.1.3`, active development | Advertised as production-ready |
 
 ## Transport coverage
 
@@ -96,12 +96,16 @@ ecosystem polish rather than functional parity:
 1. **Pluggable `DataStore` examples**: the trait is public, but the crate ships
    only `MemoryStore` and `SharedStore`. A file-backed or Redis-backed example
    would demonstrate the seam.
-2. **Example coverage**: a minimal example per transport and major feature is
-   being added in Phase 4 (see `examples/`).
-3. **Loopback test matrix**: expand integration tests to cover more
-   `transport × sync/async` combinations.
-4. **crates.io release**: finalize metadata, publish `--dry-run`, and tag a
-   stable `0.2.0`.
+2. **crates.io release**: package metadata and `--dry-run` are clean, and the
+   repository is tagged. The final step is publishing to crates.io and
+   announcing `0.2.0`.
+
+Items recently resolved:
+
+- **Example coverage**: every transport and major feature now has a minimal
+  compiling example in `examples/`.
+- **Loopback test matrix**: `tests/loopback.rs` covers all sync/async ×
+  RTU/TCP/UDP/ASCII combinations using in-memory loopback transports.
 
 ## Sources
 

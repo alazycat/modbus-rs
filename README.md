@@ -1,7 +1,7 @@
 # modbus-rs
 
 A Rust implementation of the Modbus Application Protocol with optional
-client/server runtimes for TCP, UDP, RTU serial, and ASCII.
+client/server runtimes for TCP, UDP, RTU serial, ASCII, RTU-over-TCP, and TLS.
 
 ## Features
 
@@ -16,7 +16,10 @@ client/server runtimes for TCP, UDP, RTU serial, and ASCII.
 | `serial` | Async serial support via `tokio-serial` |
 | `sync-serial` | Sync serial support via `serialport` |
 | `tls` | TLS over TCP via `rustls` / `tokio-rustls` |
-| `helpers` | Byte/word conversion utilities |
+| `helpers` | Byte/word conversion utilities and typed client methods |
+| `config` | JSON/TOML/YAML configuration file loading |
+| `tracing` | Optional `tracing` instrumentation |
+| `metrics` | Optional atomic request/retry/exception counters |
 | `cli` | `modbus-cli` binary |
 
 ## Building
@@ -26,12 +29,36 @@ cargo build
 cargo build --features cli
 cargo build --features sync,tcp,tls
 cargo build --features sync,rtu,sync-serial
+cargo build --features async,tcp,helpers
+```
+
+## Examples
+
+See the [`examples/`](examples/) directory for minimal compiling examples:
+
+```sh
+cargo build --example tcp_client --features sync,tcp
+cargo build --example tcp_server --features async,tcp
+cargo build --example rtu_client --features sync,rtu,sync-serial
+cargo build --example ascii_client --features sync,ascii,sync-serial
+cargo build --example rtu_over_tcp_client --features sync,rtu,tcp
+cargo build --example tls_client --features async,tcp,tls
+cargo build --example typed_helpers --features sync,tcp,helpers
+cargo build --example config_client --features config,sync,tcp
+cargo build --example config_server --features config,async,tcp
 ```
 
 ## CLI
 
 `modbus-cli` is an optional binary built with the `cli` feature. It provides
-`client` and `server` subcommands for both TCP and RTU serial transports.
+`client` and `server` subcommands. Additional transports and helpers are
+available when the corresponding features are enabled:
+
+- `cli,tls` — TLS over TCP client/server.
+- `cli,udp` — UDP client/server.
+- `cli,ascii` — ASCII serial/stream client/server.
+- `cli,helpers` — typed `read-holding-u32`, `write-multiple-f32`, etc.
+- `cli,config` — load client/server settings from JSON/TOML/YAML.
 
 ### TCP client/server example
 
@@ -64,49 +91,48 @@ cargo run --bin modbus-cli --features cli -- client tcp \
   read-coils --address 0 --quantity 8
 ```
 
-TLS and sync serial transports are also available via the `tls` and
-`sync-serial` feature flags (see the feature table above and the crate docs).
-
-### RTU serial client/server example
-
-RTU mode requires an actual serial port. Replace `/dev/ttyUSB0` with the
-appropriate device path for your system.
-
-Server:
+### TLS TCP server example
 
 ```sh
-cargo run --bin modbus-cli --features cli -- server rtu \
-  --path /dev/ttyUSB0 --baud 9600 --slave-id 1 \
-  --coils 16 --holding-registers 10
+# Generate or obtain PEM files first, then:
+cargo run --bin modbus-cli --features cli,tls -- server tcp \
+  --bind 127.0.0.1:5502 --unit-id 1 --holding-registers 10 \
+  --tls --tls-cert server.crt --tls-key server.key
 ```
 
-Client:
+### Typed register helpers via CLI
 
 ```sh
-cargo run --bin modbus-cli --features cli -- client rtu \
-  --path /dev/ttyUSB0 --baud 9600 --slave-id 1 \
-  read-holding-registers --address 0 --quantity 4
+cargo run --bin modbus-cli --features cli,helpers -- client tcp \
+  --host 127.0.0.1 --port 5502 --unit-id 1 \
+  read-holding-u32 --address 0
+```
+
+### Configuration file example
+
+```sh
+cargo run --bin modbus-cli --features cli,config -- server --config server.toml
 ```
 
 ## Typed register helpers
 
 The `helpers` feature adds convenience methods for reading and writing
-multi-register values. The byte order and word order are controlled by
+multi-register values. Byte order and word order are controlled by
 [`ClientConfig`], defaulting to big-endian / most-significant-first:
 
 ```rust
-use modbus::client::{ClientConfig, Client};
+use modbus::client::ClientConfig;
 use modbus::helpers::{Endian, WordOrder};
+use modbus::tcp_client::TcpClient;
+use modbus::tcp_transport::TcpTransport;
+use std::net::TcpStream;
 
 let mut config = ClientConfig::default();
 config.endian = Endian::Big;
 config.word_order = WordOrder::MostSignificantFirst;
 
-// client is any Client or ClientCore, e.g. a TCP client
-let mut client = modbus::tcp_client::TcpClient::connect(
-    "127.0.0.1:5502",
-    config,
-).unwrap();
+let stream = TcpStream::connect("127.0.0.1:5502").unwrap();
+let mut client = TcpClient::with_config(TcpTransport::new(stream), config);
 
 let value = client.read_holding_registers_u32(1, 0).unwrap();
 client.write_multiple_registers_u32(1, 0, value + 1).unwrap();
@@ -114,6 +140,13 @@ client.write_multiple_registers_u32(1, 0, value + 1).unwrap();
 
 Supported types include `u16`, `i16`, `u32`, `i32`, `u64`, `i64`, `f32`,
 `f64`, and NUL-terminated strings.
+
+## Retry, reconnect, and idle timeout
+
+`RetryAdapter` / `AsyncRetryAdapter` wrap any client adapter and rebuild the
+connection using a factory when a retryable error occurs. Idle timeout is
+configured through `ClientConfig.idle_timeout` and applied to the underlying
+streams by all sync and async transports.
 
 ## Tests
 

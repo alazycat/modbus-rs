@@ -80,6 +80,35 @@ impl RtuAdu {
     }
 }
 
+/// The result of asking whether an accumulated RTU byte buffer is a complete,
+/// valid frame.
+#[cfg(any(feature = "sync", feature = "async"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RtuFrameError {
+    /// More bytes are needed to determine whether the frame is complete.
+    NeedMore,
+    /// The accumulated bytes cannot form a valid RTU frame.
+    Invalid,
+}
+
+/// Compute the length of a complete RTU ADU frame from an accumulated byte
+/// buffer.
+///
+/// Returns `Ok(buf.len())` once the buffer contains a valid `RtuAdu`.
+/// Returns `Err(RtuFrameError::NeedMore)` while the buffer is still incomplete
+/// or invalid but has not exceeded the maximum frame size. Returns
+/// `Err(RtuFrameError::Invalid)` once the buffer exceeds `RtuAdu::MAX_FRAME_SIZE`.
+#[cfg(any(feature = "sync", feature = "async"))]
+pub fn rtu_frame_len(buf: &[u8]) -> Result<usize, RtuFrameError> {
+    if buf.len() > RtuAdu::MAX_FRAME_SIZE {
+        return Err(RtuFrameError::Invalid);
+    }
+    if buf.len() >= RtuAdu::MIN_FRAME_SIZE && RtuAdu::decode(buf).is_ok() {
+        return Ok(buf.len());
+    }
+    Err(RtuFrameError::NeedMore)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,5 +177,27 @@ mod tests {
             frame.encode(&mut buf),
             Err(EncodeError::BufferTooSmall)
         ));
+    }
+
+    #[test]
+    #[cfg(any(feature = "sync", feature = "async"))]
+    fn rtu_frame_len_completes_on_valid_frame() {
+        let frame = RtuAdu::new(0x01, vec![0x03, 0x00, 0x00, 0x00, 0x0A]);
+        let mut buf = [0u8; 8];
+        let n = frame.encode(&mut buf).unwrap();
+        assert_eq!(rtu_frame_len(&buf[..n]), Ok(n));
+    }
+
+    #[test]
+    #[cfg(any(feature = "sync", feature = "async"))]
+    fn rtu_frame_len_reports_need_more_for_short_frame() {
+        assert_eq!(rtu_frame_len(&[0x01, 0x03, 0x00]), Err(RtuFrameError::NeedMore));
+    }
+
+    #[test]
+    #[cfg(any(feature = "sync", feature = "async"))]
+    fn rtu_frame_len_rejects_oversized_frame() {
+        let oversized = vec![0x00; RtuAdu::MAX_FRAME_SIZE + 1];
+        assert_eq!(rtu_frame_len(&oversized), Err(RtuFrameError::Invalid));
     }
 }

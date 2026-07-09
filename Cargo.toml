@@ -14,11 +14,12 @@ sync = ["std", "rtu"]
 async = ["std", "dep:tokio"]
 serial = ["rtu", "async", "dep:tokio-serial"]
 helpers = []
-cli = ["std", "async", "tcp", "rtu", "serial", "dep:clap", "dep:tracing", "dep:tracing-subscriber"]
+cli = ["std", "async", "tcp", "rtu", "serial", "tracing", "dep:clap", "dep:tracing-subscriber"]
 loopback-tests = ["rtu", "ascii", "serial"]
 tls = ["std", "tcp", "async", "dep:tokio-rustls", "dep:rustls"]
 sync-serial = ["std", "sync", "dep:serialport"]
 config = ["std", "dep:serde", "dep:serde_json", "dep:toml", "dep:serde_yaml"]
+tracing = ["std", "dep:tracing"]
 
 [dependencies]
 tokio = { version = "1", features = ["net", "rt", "rt-multi-thread", "io-util", "time", "macros"], optional = true }

@@ -7,8 +7,6 @@
 
 #![cfg(any(feature = "sync", feature = "async"))]
 
-use core::time::Duration;
-
 use crate::client::{ClientError, RetryPolicy};
 
 /// A synchronous retry adapter.
@@ -135,6 +133,7 @@ mod tests {
         use super::*;
         use crate::client::AduAdapter;
         use crate::transport::TransportError;
+        use core::time::Duration;
 
         struct MockAdapter {
             responses: alloc::vec::Vec<Result<alloc::vec::Vec<u8>, ClientError>>,
@@ -255,6 +254,7 @@ mod tests {
         use crate::transport::TransportError;
         use alloc::sync::Arc;
         use core::sync::atomic::{AtomicUsize, Ordering};
+        use core::time::Duration;
 
         struct MockAsyncAdapter {
             responses: alloc::vec::Vec<Result<alloc::vec::Vec<u8>, ClientError>>,

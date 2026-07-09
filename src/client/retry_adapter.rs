@@ -9,6 +9,9 @@
 
 use crate::client::{ClientError, RetryPolicy};
 
+#[cfg(feature = "metrics")]
+use alloc::sync::Arc;
+
 /// A synchronous retry adapter.
 #[cfg(feature = "sync")]
 #[derive(Debug)]
@@ -16,6 +19,8 @@ pub struct RetryAdapter<A, F> {
     adapter: A,
     factory: F,
     policy: RetryPolicy,
+    #[cfg(feature = "metrics")]
+    metrics: Option<Arc<crate::metrics::Metrics>>,
 }
 
 #[cfg(feature = "sync")]
@@ -29,7 +34,15 @@ impl<A, F> RetryAdapter<A, F> {
             adapter,
             factory,
             policy,
+            #[cfg(feature = "metrics")]
+            metrics: None,
         }
+    }
+
+    /// Attach a shared [`Metrics`] instance to this adapter.
+    #[cfg(feature = "metrics")]
+    pub fn set_metrics(&mut self, metrics: Arc<crate::metrics::Metrics>) {
+        self.metrics = Some(metrics);
     }
 }
 
@@ -52,9 +65,17 @@ where
                 Ok(response) => return Ok(response),
                 Err(err) => {
                     if attempts >= self.policy.max_retries || !(self.policy.retryable)(&err) {
+                        #[cfg(feature = "metrics")]
+                        if let Some(ref metrics) = self.metrics {
+                            metrics.record_error();
+                        }
                         return Err(err);
                     }
                     attempts += 1;
+                    #[cfg(feature = "metrics")]
+                    if let Some(ref metrics) = self.metrics {
+                        metrics.record_retry();
+                    }
                     std::thread::sleep(backoff);
                     self.adapter = (self.factory)()?;
                     backoff = backoff
@@ -73,6 +94,8 @@ pub struct AsyncRetryAdapter<A, F> {
     adapter: A,
     factory: F,
     policy: RetryPolicy,
+    #[cfg(feature = "metrics")]
+    metrics: Option<Arc<crate::metrics::Metrics>>,
 }
 
 #[cfg(feature = "async")]
@@ -86,7 +109,15 @@ impl<A, F> AsyncRetryAdapter<A, F> {
             adapter,
             factory,
             policy,
+            #[cfg(feature = "metrics")]
+            metrics: None,
         }
+    }
+
+    /// Attach a shared [`Metrics`] instance to this adapter.
+    #[cfg(feature = "metrics")]
+    pub fn set_metrics(&mut self, metrics: Arc<crate::metrics::Metrics>) {
+        self.metrics = Some(metrics);
     }
 }
 
@@ -110,9 +141,17 @@ where
                 Ok(response) => return Ok(response),
                 Err(err) => {
                     if attempts >= self.policy.max_retries || !(self.policy.retryable)(&err) {
+                        #[cfg(feature = "metrics")]
+                        if let Some(ref metrics) = self.metrics {
+                            metrics.record_error();
+                        }
                         return Err(err);
                     }
                     attempts += 1;
+                    #[cfg(feature = "metrics")]
+                    if let Some(ref metrics) = self.metrics {
+                        metrics.record_retry();
+                    }
                     tokio::time::sleep(backoff).await;
                     self.adapter = (self.factory)().await?;
                     backoff = backoff

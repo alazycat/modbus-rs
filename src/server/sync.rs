@@ -58,12 +58,33 @@ use super::DataStore;
 #[derive(Debug)]
 pub struct Server<D: DataStore> {
     store: D,
+    #[cfg(feature = "metrics")]
+    metrics: Option<alloc::sync::Arc<crate::metrics::Metrics>>,
 }
 
 impl<D: DataStore> Server<D> {
     /// Create a server backed by `store`.
     pub fn new(store: D) -> Self {
-        Self { store }
+        Self {
+            store,
+            #[cfg(feature = "metrics")]
+            metrics: None,
+        }
+    }
+
+    /// Create a server backed by `store` and attach `metrics`.
+    #[cfg(feature = "metrics")]
+    pub fn with_metrics(store: D, metrics: alloc::sync::Arc<crate::metrics::Metrics>) -> Self {
+        Self {
+            store,
+            metrics: Some(metrics),
+        }
+    }
+
+    /// Attach a shared [`Metrics`] instance to this server.
+    #[cfg(feature = "metrics")]
+    pub fn set_metrics(&mut self, metrics: alloc::sync::Arc<crate::metrics::Metrics>) {
+        self.metrics = Some(metrics);
     }
 
     /// Return an immutable reference to the underlying store.
@@ -82,8 +103,17 @@ impl<D: DataStore> Server<D> {
     pub fn dispatch(&mut self, request: &[u8], response: &mut [u8]) -> Result<usize, EncodeError> {
         #[cfg(feature = "tracing")]
         tracing::trace!(request_len = request.len(), "dispatching request");
+        #[cfg(feature = "metrics")]
+        if let Some(ref metrics) = self.metrics {
+            metrics.record_request_received();
+        }
         if request.is_empty() {
-            return encode_exception(0, ExceptionCode::IllegalFunction, response);
+            let n = encode_exception(0, ExceptionCode::IllegalFunction, response)?;
+            #[cfg(feature = "metrics")]
+            if let Some(ref metrics) = self.metrics {
+                metrics.record_response_sent();
+            }
+            return Ok(n);
         }
 
         let function_code = request[0];
@@ -92,15 +122,28 @@ impl<D: DataStore> Server<D> {
                 #[cfg(feature = "tracing")]
                 tracing::trace!(function_code, response_len = pdu.len(), "request processed");
                 if response.len() < pdu.len() {
+                    #[cfg(feature = "metrics")]
+                    if let Some(ref metrics) = self.metrics {
+                        metrics.record_error();
+                    }
                     return Err(EncodeError::BufferTooSmall);
                 }
                 response[..pdu.len()].copy_from_slice(&pdu);
+                #[cfg(feature = "metrics")]
+                if let Some(ref metrics) = self.metrics {
+                    metrics.record_response_sent();
+                }
                 Ok(pdu.len())
             }
             Err(code) => {
                 #[cfg(feature = "tracing")]
                 tracing::trace!(function_code, ?code, "request returned exception");
-                encode_exception(function_code, code, response)
+                let n = encode_exception(function_code, code, response)?;
+                #[cfg(feature = "metrics")]
+                if let Some(ref metrics) = self.metrics {
+                    metrics.record_response_sent();
+                }
+                Ok(n)
             }
         }
     }
@@ -466,5 +509,27 @@ mod tests {
 
         let new_value = server.store().read_holding_registers(0, 1).unwrap();
         assert_eq!(new_value, vec![0x00, 0x34]);
+    }
+
+    #[cfg(feature = "metrics")]
+    #[test]
+    fn metrics_count_request_and_response() {
+        use alloc::sync::Arc;
+        use crate::metrics::Metrics;
+
+        let metrics = Arc::new(Metrics::new());
+        let mut server = Server::with_metrics(MemoryStore::new(16, 0, 0, 0), Arc::clone(&metrics));
+        server.store_mut().write_coils(0, &[true, false, true, true]).unwrap();
+
+        let req = ReadCoilsRequest::new(0, 8).unwrap();
+        let mut request = [0u8; 5];
+        req.encode(&mut request).unwrap();
+
+        let mut response = [0u8; 512];
+        let n = server.dispatch(&request, &mut response).unwrap();
+        assert_eq!(n, 3);
+
+        assert_eq!(metrics.requests_received(), 1);
+        assert_eq!(metrics.responses_sent(), 1);
     }
 }

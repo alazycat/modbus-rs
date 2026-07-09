@@ -41,11 +41,15 @@ mod tests {
 
         struct MockTransport {
             sent: Vec<Vec<u8>>,
+            response: Option<Vec<u8>>,
         }
 
         impl MockTransport {
             fn new() -> Self {
-                Self { sent: Vec::new() }
+                Self {
+                    sent: Vec::new(),
+                    response: None,
+                }
             }
         }
 
@@ -57,10 +61,15 @@ mod tests {
 
             fn recv(
                 &mut self,
-                _buf: &mut [u8],
+                buf: &mut [u8],
                 _timeout: Duration,
             ) -> Result<usize, TransportError> {
-                Err(TransportError::Disconnected)
+                let data = self.response.take().ok_or(TransportError::Disconnected)?;
+                if buf.len() < data.len() {
+                    return Err(TransportError::Disconnected);
+                }
+                buf[..data.len()].copy_from_slice(&data);
+                Ok(data.len())
             }
         }
 
@@ -85,6 +94,38 @@ mod tests {
             let sent = RtuAdu::decode(&adapter.transport.sent[0]).unwrap();
             assert_eq!(sent.address, 0);
             assert_eq!(sent.pdu, request_pdu);
+        }
+
+        #[cfg(feature = "metrics")]
+        #[test]
+        fn metrics_count_request_and_response() {
+            use super::super::RtuAduAdapter;
+            use alloc::sync::Arc;
+            use crate::metrics::Metrics;
+
+            let response_pdu = vec![0x01, 0x01, 0b00001101];
+            let mut transport = MockTransport::new();
+            let mut adu_buf = [0u8; 32];
+            let n = RtuAdu::new(0x01, response_pdu.clone())
+                .encode(&mut adu_buf)
+                .unwrap();
+            transport.response = Some(adu_buf[..n].to_vec());
+
+            let metrics = Arc::new(Metrics::new());
+            let mut adapter = RtuAduAdapter::with_config(transport, ClientConfig::default());
+            adapter.set_metrics(Arc::clone(&metrics));
+
+            let request_pdu = {
+                let req = ReadCoilsRequest::new(0, 8).unwrap();
+                let mut buf = [0u8; 5];
+                let n = req.encode(&mut buf).unwrap();
+                buf[..n].to_vec()
+            };
+            let response = adapter.send_receive(0x01, &request_pdu).unwrap();
+
+            assert_eq!(response, response_pdu);
+            assert_eq!(metrics.requests_sent(), 1);
+            assert_eq!(metrics.responses_received(), 1);
         }
     }
 

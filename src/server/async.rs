@@ -144,8 +144,10 @@ where
     let request = read_adu(stream).await?;
     #[cfg(feature = "tracing")]
     tracing::trace!(
+        protocol = "rtu",
         server_address,
         request_address = request.address,
+        function_code = request.pdu.first().copied().unwrap_or(0),
         is_broadcast = request.is_broadcast(),
         "serving RTU request"
     );
@@ -153,6 +155,7 @@ where
     if request.address != server_address && !request.is_broadcast() {
         #[cfg(feature = "tracing")]
         tracing::trace!(
+            protocol = "rtu",
             server_address,
             request_address = request.address,
             "ignoring request for different server address"
@@ -165,7 +168,7 @@ where
 
     if request.is_broadcast() {
         #[cfg(feature = "tracing")]
-        tracing::trace!("broadcast request, no response written");
+        tracing::trace!(protocol = "rtu", server_address, "broadcast request, no response written");
         return Ok(None);
     }
 
@@ -175,7 +178,7 @@ where
     stream.write_all(&tx[..m]).await?;
     stream.flush().await?;
     #[cfg(feature = "tracing")]
-    tracing::trace!(response_len = m, "wrote RTU response");
+    tracing::trace!(protocol = "rtu", server_address, response_len = m, "wrote RTU response");
     Ok(Some(m))
 }
 

@@ -426,12 +426,38 @@ impl<D: DataStore> AsyncUdpServer<D> {
         let (len, peer) = socket.recv_from(&mut rx).await?;
 
         let request = UdpAdu::decode(&rx[..len])?;
+
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            protocol = "udp",
+            unit_id,
+            transaction_id = request.transaction_id,
+            function_code = request.pdu.first().copied().unwrap_or(0),
+            "serving async UDP request"
+        );
+
         if request.unit_id != unit_id {
+            #[cfg(feature = "tracing")]
+            tracing::trace!(
+                protocol = "udp",
+                unit_id,
+                request_unit_id = request.unit_id,
+                "ignoring async request for different unit ID"
+            );
             return Ok(None);
         }
 
         let mut pdu_response = [0u8; 512];
         let n = self.server.dispatch_with_hook(unit_id, &request.pdu, &mut pdu_response)?;
+
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            protocol = "udp",
+            unit_id,
+            transaction_id = request.transaction_id,
+            response_len = n,
+            "wrote async UDP response"
+        );
 
         let response = UdpAdu::new(
             request.transaction_id,

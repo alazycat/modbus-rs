@@ -506,7 +506,24 @@ impl<D: DataStore> AsyncAsciiServer<D> {
     {
         let request = self.read_adu(stream).await?;
 
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            protocol = "ascii",
+            server_address,
+            request_address = request.address,
+            function_code = request.pdu.first().copied().unwrap_or(0),
+            is_broadcast = request.is_broadcast(),
+            "serving async ASCII request"
+        );
+
         if request.address != server_address && !request.is_broadcast() {
+            #[cfg(feature = "tracing")]
+            tracing::trace!(
+                protocol = "ascii",
+                server_address,
+                request_address = request.address,
+                "ignoring async request for different server address"
+            );
             return Ok(None);
         }
 
@@ -514,8 +531,19 @@ impl<D: DataStore> AsyncAsciiServer<D> {
         let n = self.server.dispatch_with_hook(server_address, &request.pdu, &mut pdu_response)?;
 
         if request.is_broadcast() {
+            #[cfg(feature = "tracing")]
+            tracing::trace!(protocol = "ascii", server_address, "broadcast async request, no response written");
             return Ok(None);
         }
+
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            protocol = "ascii",
+            server_address,
+            request_address = request.address,
+            response_len = n,
+            "wrote async ASCII response"
+        );
 
         let response = AsciiAdu::new(request.address, pdu_response[..n].to_vec());
         let mut tx = [0u8; 513];

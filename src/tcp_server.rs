@@ -503,12 +503,37 @@ impl<D: DataStore> AsyncTcpServer<D> {
     {
         let request = self.read_adu(stream).await?;
 
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            protocol = "tcp",
+            unit_id,
+            transaction_id = request.transaction_id,
+            function_code = request.pdu.first().copied().unwrap_or(0),
+            "serving async TCP request"
+        );
+
         if request.unit_id != unit_id {
+            #[cfg(feature = "tracing")]
+            tracing::trace!(
+                protocol = "tcp",
+                unit_id,
+                request_unit_id = request.unit_id,
+                "ignoring async request for different unit ID"
+            );
             return Ok(None);
         }
 
         let mut pdu_response = [0u8; 512];
         let n = self.server.dispatch_with_hook(unit_id, &request.pdu, &mut pdu_response)?;
+
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            protocol = "tcp",
+            unit_id,
+            transaction_id = request.transaction_id,
+            response_len = n,
+            "wrote async TCP response"
+        );
 
         let response = TcpAdu::new(
             request.transaction_id,

@@ -344,12 +344,12 @@ framing modes.
 started from JSON/TOML/YAML files when the `config` feature is enabled.
 
 **Acceptance criteria:**
-- [ ] `--config` flag deserializes `ClientConfigFile` / `ServerConfigFile`.
-- [ ] Works for at least TCP and RTU clients.
+- [x] `--config` flag deserializes `ClientConfigFile` / `ServerConfigFile`.
+- [x] Works for at least TCP and RTU clients.
 
 **Verification:**
-- [ ] `cargo build --bin modbus-cli --features cli,config` succeeds.
-- [ ] `cargo test --features cli,config` passes.
+- [x] `cargo build --bin modbus-cli --features cli,config` succeeds.
+- [x] `cargo test --features cli,config` passes.
 
 **Dependencies:** Task 3.3
 

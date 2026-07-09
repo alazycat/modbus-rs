@@ -197,6 +197,16 @@ pub struct ServerConfigFile {
     pub transport: ServerTransport,
     /// Optional path to a persistent backing store.
     pub store_path: Option<String>,
+    /// Modbus unit/slave ID.
+    pub unit_id: u8,
+    /// Number of coils.
+    pub coils: u16,
+    /// Number of discrete inputs.
+    pub discrete_inputs: u16,
+    /// Number of holding registers.
+    pub holding_registers: u16,
+    /// Number of input registers.
+    pub input_registers: u16,
 }
 
 impl Default for ServerConfigFile {
@@ -205,6 +215,11 @@ impl Default for ServerConfigFile {
             bind_address: "127.0.0.1:502".to_string(),
             transport: ServerTransport::Tcp,
             store_path: None,
+            unit_id: 1,
+            coils: 0,
+            discrete_inputs: 0,
+            holding_registers: 0,
+            input_registers: 0,
         }
     }
 }

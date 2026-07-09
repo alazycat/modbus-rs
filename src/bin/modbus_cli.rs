@@ -7,7 +7,7 @@
 
 use std::fmt;
 use std::net::SocketAddr;
-#[cfg(feature = "tls")]
+#[cfg(any(feature = "tls", feature = "config"))]
 use std::path::PathBuf;
 #[cfg(feature = "tls")]
 use std::sync::Arc;
@@ -20,6 +20,11 @@ use tokio::net::UdpSocket;
 use tracing::{error, info};
 
 use modbus::client::{AsyncClient, ClientConfig};
+#[cfg(feature = "config")]
+use modbus::config::{
+    client_from_json, client_from_toml, client_from_yaml, server_from_json, server_from_toml,
+    server_from_yaml, ClientConfigFile, ConfigError, ServerConfigFile, ServerTransport as ConfigServerTransport,
+};
 #[cfg(feature = "ascii")]
 use modbus::{
     ascii_client::AsyncAsciiClient, ascii_server::AsyncAsciiServer,
@@ -57,6 +62,11 @@ enum Commands {
 
 #[derive(Parser)]
 struct ClientArgs {
+    /// Path to a JSON/TOML/YAML client configuration file.
+    #[cfg(feature = "config")]
+    #[arg(long, value_name = "PATH")]
+    config: Option<PathBuf>,
+
     #[command(subcommand)]
     transport: ClientTransport,
 }
@@ -248,8 +258,13 @@ enum ClientOp {
 
 #[derive(Parser)]
 struct ServerArgs {
+    /// Path to a JSON/TOML/YAML server configuration file.
+    #[cfg(feature = "config")]
+    #[arg(long, value_name = "PATH")]
+    config: Option<PathBuf>,
+
     #[command(subcommand)]
-    transport: ServerTransport,
+    transport: Option<ServerTransport>,
 }
 
 #[derive(Subcommand)]
@@ -464,14 +479,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 
 async fn run_client(args: ClientArgs) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    #[cfg(feature = "config")]
+    let file_config = args
+        .config
+        .as_ref()
+        .map(load_client_config)
+        .transpose()?;
+    #[cfg(not(feature = "config"))]
+    let file_config: Option<ClientConfig> = None;
+
     match args.transport {
         ClientTransport::Tcp(tcp) => {
             let addr: SocketAddr = format!("{}:{}", tcp.host, tcp.port).parse()?;
             info!("connecting to {}:{}", tcp.host, tcp.port);
-            let config = TcpClientConfig {
+            let config = file_config.unwrap_or_else(|| TcpClientConfig {
                 timeout: Duration::from_secs(tcp.timeout),
                 ..Default::default()
-            };
+            });
             #[cfg(feature = "tls")]
             if tcp.tls {
                 let cert_path = tcp
@@ -498,20 +522,20 @@ async fn run_client(args: ClientArgs) -> Result<(), Box<dyn std::error::Error + 
         ClientTransport::Rtu(rtu) => {
             info!("opening serial port {} at {} baud", rtu.path, rtu.baud);
             let transport = open_serial_rtu(&rtu.path, rtu.baud).await?;
-            let config = ClientConfig {
+            let config = file_config.unwrap_or_else(|| ClientConfig {
                 timeout: Duration::from_secs(rtu.timeout),
                 ..Default::default()
-            };
+            });
             let mut client = AsyncClient::with_config(transport, config);
             execute_client_op(&mut client, rtu.slave_id, rtu.op).await?;
         }
         ClientTransport::RtuOverTcp(rtu) => {
             let addr: SocketAddr = format!("{}:{}", rtu.host, rtu.port).parse()?;
             info!("connecting RTU-over-TCP to {}:{}", rtu.host, rtu.port);
-            let config = ClientConfig {
+            let config = file_config.unwrap_or_else(|| ClientConfig {
                 timeout: Duration::from_secs(rtu.timeout),
                 ..Default::default()
-            };
+            });
             let mut client = AsyncClient::connect_rtu_over_tcp(addr, config).await?;
             execute_client_op(&mut client, rtu.unit_id, rtu.op).await?;
         }
@@ -521,10 +545,10 @@ async fn run_client(args: ClientArgs) -> Result<(), Box<dyn std::error::Error + 
             info!("binding UDP client and targeting {}:{}", udp.host, udp.port);
             let socket = UdpSocket::bind("0.0.0.0:0").await?;
             let transport = AsyncUdpTransport::new(socket, remote);
-            let config = ClientConfig {
+            let config = file_config.unwrap_or_else(|| ClientConfig {
                 timeout: Duration::from_secs(udp.timeout),
                 ..Default::default()
-            };
+            });
             let mut client = AsyncUdpClient::with_config(transport, config);
             execute_client_op(&mut client, udp.unit_id, udp.op).await?;
         }
@@ -534,10 +558,10 @@ async fn run_client(args: ClientArgs) -> Result<(), Box<dyn std::error::Error + 
             info!("connecting ASCII-over-TCP to {}:{}", ascii.host, ascii.port);
             let stream = TcpStream::connect(addr).await?;
             let transport = AsyncAsciiTransport::new(stream);
-            let config = ClientConfig {
+            let config = file_config.unwrap_or_else(|| ClientConfig {
                 timeout: Duration::from_secs(ascii.timeout),
                 ..Default::default()
-            };
+            });
             let mut client = AsyncAsciiClient::with_config(transport, config);
             execute_client_op(&mut client, ascii.slave_id, ascii.op).await?;
         }
@@ -752,7 +776,15 @@ where
 }
 
 async fn run_server(args: ServerArgs) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    match args.transport {
+    #[cfg(feature = "config")]
+    if let Some(path) = args.config {
+        let cfg = load_server_config(&path)?;
+        return run_server_from_config(cfg).await;
+    }
+
+    match args.transport.ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+        "server subcommand or --config required".into()
+    })? {
         ServerTransport::Tcp(tcp) => run_tcp_server(tcp).await,
         ServerTransport::Rtu(rtu) => run_rtu_server(rtu).await,
         ServerTransport::RtuOverTcp(rtu) => run_rtu_over_tcp_server(rtu).await,
@@ -951,4 +983,113 @@ fn build_tls_server_config(
         .with_single_cert(cert_chain, key)
         .map_err(|e| format!("failed to build TLS server config: {e}"))?;
     Ok(Arc::new(config))
+}
+
+#[cfg(feature = "config")]
+fn load_client_config(
+    path: &PathBuf,
+) -> Result<ClientConfig, Box<dyn std::error::Error + Send + Sync>> {
+    let text = std::fs::read_to_string(path)?;
+    let file = parse_client_config(&text, path)?;
+    let (config, _retry) = file.into_parts()?;
+    Ok(config)
+}
+
+#[cfg(feature = "config")]
+fn parse_client_config(text: &str, path: &PathBuf) -> Result<ClientConfigFile, ConfigError> {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("json") => client_from_json(text),
+        Some("toml") => client_from_toml(text),
+        Some("yaml") | Some("yml") => client_from_yaml(text),
+        _ => Err(ConfigError::InvalidValue(format!(
+            "unsupported config format '{}'; expected .json, .toml, .yaml or .yml",
+            path.display()
+        ))),
+    }
+}
+
+#[cfg(feature = "config")]
+fn load_server_config(
+    path: &PathBuf,
+) -> Result<ServerConfigFile, Box<dyn std::error::Error + Send + Sync>> {
+    let text = std::fs::read_to_string(path)?;
+    let file = parse_server_config(&text, path)?;
+    Ok(file)
+}
+
+#[cfg(feature = "config")]
+fn parse_server_config(text: &str, path: &PathBuf) -> Result<ServerConfigFile, ConfigError> {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("json") => server_from_json(text),
+        Some("toml") => server_from_toml(text),
+        Some("yaml") | Some("yml") => server_from_yaml(text),
+        _ => Err(ConfigError::InvalidValue(format!(
+            "unsupported config format '{}'; expected .json, .toml, .yaml or .yml",
+            path.display()
+        ))),
+    }
+}
+
+#[cfg(feature = "config")]
+async fn run_server_from_config(
+    cfg: ServerConfigFile,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use ConfigServerTransport as T;
+
+    let store = SharedStore::new(MemoryStore::new(
+        cfg.coils,
+        cfg.discrete_inputs,
+        cfg.holding_registers,
+        cfg.input_registers,
+    ));
+
+    match cfg.transport {
+        T::Tcp => {
+            let bind: SocketAddr = cfg.bind_address.parse()?;
+            let listener = TcpListener::bind(bind).await?;
+            info!("TCP server listening on {}", bind);
+            loop {
+                let (mut stream, peer) = listener.accept().await?;
+                let mut server = AsyncTcpServer::new(store.clone());
+                info!("accepted connection from {}", peer);
+                tokio::spawn(async move {
+                    if let Err(e) = server.serve(&mut stream, cfg.unit_id).await {
+                        error!("connection from {} failed: {}", peer, e);
+                    }
+                });
+            }
+        }
+        T::Udp => {
+            #[cfg(feature = "udp")]
+            {
+                let bind: SocketAddr = cfg.bind_address.parse()?;
+                let socket = UdpSocket::bind(bind).await?;
+                info!("UDP server listening on {}", bind);
+                let mut server = AsyncUdpServer::new(store);
+                server.serve(&socket, cfg.unit_id).await?;
+                Ok(())
+            }
+            #[cfg(not(feature = "udp"))]
+            Err("UDP support is not enabled; build with --features udp".into())
+        }
+        T::RtuOverTcp => {
+            let bind: SocketAddr = cfg.bind_address.parse()?;
+            let listener = TcpListener::bind(bind).await?;
+            info!("RTU-over-TCP server listening on {}", bind);
+            let mut server = AsyncRtuOverTcpServer::new(store);
+            server.serve(listener, cfg.unit_id).await?;
+            Ok(())
+        }
+        T::Rtu | T::Serial => {
+            info!("opening serial port {} at 9600 baud", cfg.bind_address);
+            let transport = open_serial_rtu(&cfg.bind_address, 9600).await?;
+            let mut stream = transport.into_inner();
+            let mut server = AsyncServer::new(store);
+            info!("RTU server serving slave {}", cfg.unit_id);
+            server.serve(&mut stream, cfg.unit_id).await?;
+            Ok(())
+        }
+        T::Ascii => Err("ASCII serial server is not supported via config file".into()),
+        T::Tls => Err("TLS server is not supported via config file".into()),
+    }
 }

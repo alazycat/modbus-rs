@@ -158,10 +158,7 @@ mod tests {
         let mut buf = [0u8; 17];
         let n = adu.encode(&mut buf).unwrap();
         assert_eq!(n, 17);
-        assert_eq!(
-            &buf[..n],
-            b":01030000000AF2\r\n"
-        );
+        assert_eq!(&buf[..n], b":01030000000AF2\r\n");
 
         let decoded = AsciiAdu::decode(&buf[..n]).unwrap();
         assert_eq!(decoded, adu);
@@ -170,37 +167,55 @@ mod tests {
     #[test]
     fn decode_rejects_missing_start() {
         let buf = b"01030000000AF2\r\n";
-        assert!(matches!(AsciiAdu::decode(buf), Err(DecodeError::InvalidValue)));
+        assert!(matches!(
+            AsciiAdu::decode(buf),
+            Err(DecodeError::InvalidValue)
+        ));
     }
 
     #[test]
     fn decode_rejects_missing_crlf() {
         let buf = b":01030000000AF2";
-        assert!(matches!(AsciiAdu::decode(buf), Err(DecodeError::InvalidValue)));
+        assert!(matches!(
+            AsciiAdu::decode(buf),
+            Err(DecodeError::InvalidValue)
+        ));
     }
 
     #[test]
     fn decode_rejects_bad_lrc() {
         let buf = b":01030000000AF3\r\n";
-        assert!(matches!(AsciiAdu::decode(buf), Err(DecodeError::InvalidValue)));
+        assert!(matches!(
+            AsciiAdu::decode(buf),
+            Err(DecodeError::InvalidValue)
+        ));
     }
 
     #[test]
     fn decode_rejects_invalid_hex() {
         let buf = b":01030000000AG2\r\n";
-        assert!(matches!(AsciiAdu::decode(buf), Err(DecodeError::InvalidValue)));
+        assert!(matches!(
+            AsciiAdu::decode(buf),
+            Err(DecodeError::InvalidValue)
+        ));
     }
 
     #[test]
     fn decode_rejects_truncated_frame() {
         let buf = b":01F2\r\n";
-        assert!(matches!(AsciiAdu::decode(buf), Err(DecodeError::InvalidLength)));
+        assert!(matches!(
+            AsciiAdu::decode(buf),
+            Err(DecodeError::InvalidLength)
+        ));
     }
 
     #[test]
     fn encode_rejects_too_small_buffer() {
         let adu = AsciiAdu::new(0x01, vec![0x03, 0x00, 0x00, 0x00, 0x0A]);
         let mut buf = [0u8; 8];
-        assert!(matches!(adu.encode(&mut buf), Err(EncodeError::BufferTooSmall)));
+        assert!(matches!(
+            adu.encode(&mut buf),
+            Err(EncodeError::BufferTooSmall)
+        ));
     }
 }

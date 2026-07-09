@@ -134,17 +134,14 @@ mod tests {
     #[test]
     fn response_roundtrip() {
         let events = vec![0x20, 0x00];
-        let resp = GetCommEventLogResponse::new(
-            0x00FF,
-            0x0001,
-            0x0120,
-            events.clone(),
-        )
-        .unwrap();
+        let resp = GetCommEventLogResponse::new(0x00FF, 0x0001, 0x0120, events.clone()).unwrap();
         let mut buf = [0u8; 10];
         let n = resp.encode(&mut buf).unwrap();
         assert_eq!(n, 10);
-        assert_eq!(buf, [0x0C, 0x08, 0x00, 0xFF, 0x00, 0x01, 0x01, 0x20, 0x20, 0x00]);
+        assert_eq!(
+            buf,
+            [0x0C, 0x08, 0x00, 0xFF, 0x00, 0x01, 0x01, 0x20, 0x20, 0x00]
+        );
 
         let decoded = GetCommEventLogResponse::decode(&buf).unwrap();
         assert_eq!(decoded, resp);
@@ -164,9 +161,7 @@ mod tests {
 
     #[test]
     fn response_rejects_too_many_events() {
-        assert!(
-            GetCommEventLogResponse::new(0, 0, 0, vec![0u8; 65]).is_err()
-        );
+        assert!(GetCommEventLogResponse::new(0, 0, 0, vec![0u8; 65]).is_err());
     }
 
     #[test]

@@ -15,11 +15,7 @@ impl ReadFileRecordSubRequest {
     pub const REQUEST_REFERENCE_TYPE: u8 = 0x06;
 
     /// Create a new sub-request, validating the reference type.
-    pub fn new(
-        file_number: u16,
-        record_number: u16,
-        record_length: u16,
-    ) -> Self {
+    pub fn new(file_number: u16, record_number: u16, record_length: u16) -> Self {
         Self {
             reference_type: Self::REQUEST_REFERENCE_TYPE,
             file_number,
@@ -232,16 +228,12 @@ mod tests {
 
     #[test]
     fn request_roundtrip() {
-        let req = ReadFileRecordRequest::new(vec![
-            ReadFileRecordSubRequest::new(0x0004, 0x0001, 0x0002),
-        ]);
+        let req =
+            ReadFileRecordRequest::new(vec![ReadFileRecordSubRequest::new(0x0004, 0x0001, 0x0002)]);
         let mut buf = [0u8; 9];
         let n = req.encode(&mut buf).unwrap();
         assert_eq!(n, 9);
-        assert_eq!(
-            buf,
-            [0x14, 0x07, 0x06, 0x00, 0x04, 0x00, 0x01, 0x00, 0x02]
-        );
+        assert_eq!(buf, [0x14, 0x07, 0x06, 0x00, 0x04, 0x00, 0x01, 0x00, 0x02]);
 
         let decoded = ReadFileRecordRequest::decode(&buf).unwrap();
         assert_eq!(decoded, req);
@@ -272,16 +264,13 @@ mod tests {
 
     #[test]
     fn response_roundtrip() {
-        let resp = ReadFileRecordResponse::new(vec![ReadFileRecordSubResponse::new(
-            vec![0x0D, 0xFE, 0x00, 0x20],
-        )]);
+        let resp = ReadFileRecordResponse::new(vec![ReadFileRecordSubResponse::new(vec![
+            0x0D, 0xFE, 0x00, 0x20,
+        ])]);
         let mut buf = [0u8; 8];
         let n = resp.encode(&mut buf).unwrap();
         assert_eq!(n, 8);
-        assert_eq!(
-            buf,
-            [0x14, 0x06, 0x05, 0x06, 0x0D, 0xFE, 0x00, 0x20]
-        );
+        assert_eq!(buf, [0x14, 0x06, 0x05, 0x06, 0x0D, 0xFE, 0x00, 0x20]);
 
         let decoded = ReadFileRecordResponse::decode(&buf).unwrap();
         assert_eq!(decoded, resp);

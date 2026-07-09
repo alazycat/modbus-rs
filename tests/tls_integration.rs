@@ -17,8 +17,7 @@ fn self_signed_localhost_cert() -> (
     let CertifiedKey { cert, key_pair } =
         rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
     let cert_der = rustls::pki_types::CertificateDer::from(cert.der().to_vec());
-    let key_der =
-        rustls::pki_types::PrivatePkcs8KeyDer::from(key_pair.serialize_der().to_vec());
+    let key_der = rustls::pki_types::PrivatePkcs8KeyDer::from(key_pair.serialize_der().to_vec());
     (cert_der, key_der)
 }
 

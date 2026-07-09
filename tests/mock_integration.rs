@@ -22,7 +22,9 @@ mod sync_rtu {
         let mut client = Client::new(RtuLoopback::new(server));
 
         client.write_register(UNIT_ID, 0, 0x1234).unwrap();
-        client.write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC]).unwrap();
+        client
+            .write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC])
+            .unwrap();
         let holding = client.read_holding_registers(UNIT_ID, 0, 3).unwrap();
         let inputs = client.read_input_registers(UNIT_ID, 0, 3).unwrap();
 
@@ -44,7 +46,9 @@ mod sync_tcp {
         let mut client = TcpClient::new(TcpLoopback::new(server));
 
         client.write_register(UNIT_ID, 0, 0x1234).unwrap();
-        client.write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC]).unwrap();
+        client
+            .write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC])
+            .unwrap();
         let holding = client.read_holding_registers(UNIT_ID, 0, 3).unwrap();
         let inputs = client.read_input_registers(UNIT_ID, 0, 3).unwrap();
 
@@ -66,7 +70,9 @@ mod sync_udp {
         let mut client = UdpClient::new(UdpLoopback::new(server));
 
         client.write_register(UNIT_ID, 0, 0x1234).unwrap();
-        client.write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC]).unwrap();
+        client
+            .write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC])
+            .unwrap();
         let holding = client.read_holding_registers(UNIT_ID, 0, 3).unwrap();
         let inputs = client.read_input_registers(UNIT_ID, 0, 3).unwrap();
 
@@ -88,7 +94,9 @@ mod sync_ascii {
         let mut client = AsciiClient::new(AsciiLoopback::new(server));
 
         client.write_register(UNIT_ID, 0, 0x1234).unwrap();
-        client.write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC]).unwrap();
+        client
+            .write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC])
+            .unwrap();
         let holding = client.read_holding_registers(UNIT_ID, 0, 3).unwrap();
         let inputs = client.read_input_registers(UNIT_ID, 0, 3).unwrap();
 
@@ -110,7 +118,10 @@ mod async_rtu {
         let mut client = AsyncClient::new(AsyncRtuLoopback::new(server));
 
         client.write_register(UNIT_ID, 0, 0x1234).await.unwrap();
-        client.write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC]).await.unwrap();
+        client
+            .write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC])
+            .await
+            .unwrap();
         let holding = client.read_holding_registers(UNIT_ID, 0, 3).await.unwrap();
         let inputs = client.read_input_registers(UNIT_ID, 0, 3).await.unwrap();
 
@@ -132,7 +143,10 @@ mod async_tcp {
         let mut client = AsyncTcpClient::new(AsyncTcpLoopback::new(server));
 
         client.write_register(UNIT_ID, 0, 0x1234).await.unwrap();
-        client.write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC]).await.unwrap();
+        client
+            .write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC])
+            .await
+            .unwrap();
         let holding = client.read_holding_registers(UNIT_ID, 0, 3).await.unwrap();
         let inputs = client.read_input_registers(UNIT_ID, 0, 3).await.unwrap();
 
@@ -154,7 +168,10 @@ mod async_udp {
         let mut client = AsyncUdpClient::new(AsyncUdpLoopback::new(server));
 
         client.write_register(UNIT_ID, 0, 0x1234).await.unwrap();
-        client.write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC]).await.unwrap();
+        client
+            .write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC])
+            .await
+            .unwrap();
         let holding = client.read_holding_registers(UNIT_ID, 0, 3).await.unwrap();
         let inputs = client.read_input_registers(UNIT_ID, 0, 3).await.unwrap();
 
@@ -176,7 +193,10 @@ mod async_ascii {
         let mut client = AsyncAsciiClient::new(AsyncAsciiLoopback::new(server));
 
         client.write_register(UNIT_ID, 0, 0x1234).await.unwrap();
-        client.write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC]).await.unwrap();
+        client
+            .write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC])
+            .await
+            .unwrap();
         let holding = client.read_holding_registers(UNIT_ID, 0, 3).await.unwrap();
         let inputs = client.read_input_registers(UNIT_ID, 0, 3).await.unwrap();
 

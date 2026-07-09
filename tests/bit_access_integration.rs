@@ -19,7 +19,8 @@ fn assert_bit_access_results(coils: &[u8], discrete_inputs: &[u8]) {
     // Coil 0 written true, coils 1-3 written [true, false, true].
     assert_eq!(coils, &[0b0000_1011], "coils should reflect writes");
     assert_eq!(
-        discrete_inputs, &[0b0000_1101],
+        discrete_inputs,
+        &[0b0000_1101],
         "discrete inputs should match pre-populated values"
     );
 }
@@ -40,11 +41,12 @@ mod sync_rtu {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         let addr = listener.local_addr()?;
 
-        let server_handle = thread::spawn(move || -> Result<(), modbus::rtu_server::RtuServerError> {
-            let (mut stream, _) = listener.accept()?;
-            let mut server = RtuServer::new(bit_access_store());
-            server.serve(&mut stream, UNIT_ID)
-        });
+        let server_handle =
+            thread::spawn(move || -> Result<(), modbus::rtu_server::RtuServerError> {
+                let (mut stream, _) = listener.accept()?;
+                let mut server = RtuServer::new(bit_access_store());
+                server.serve(&mut stream, UNIT_ID)
+            });
 
         let stream = TcpStream::connect(addr)?;
         let mut client = Client::new(RtuTransport::new(stream));
@@ -78,11 +80,12 @@ mod sync_tcp {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         let addr = listener.local_addr()?;
 
-        let server_handle = thread::spawn(move || -> Result<(), modbus::tcp_server::TcpServerError> {
-            let (mut stream, _) = listener.accept()?;
-            let mut server = TcpServer::new(bit_access_store());
-            server.serve(&mut stream, UNIT_ID)
-        });
+        let server_handle =
+            thread::spawn(move || -> Result<(), modbus::tcp_server::TcpServerError> {
+                let (mut stream, _) = listener.accept()?;
+                let mut server = TcpServer::new(bit_access_store());
+                server.serve(&mut stream, UNIT_ID)
+            });
 
         let stream = TcpStream::connect(addr)?;
         let mut client = TcpClient::new(TcpTransport::new(stream));
@@ -116,13 +119,14 @@ mod sync_udp {
         let server_socket = UdpSocket::bind("127.0.0.1:0")?;
         let server_addr = server_socket.local_addr()?;
 
-        let server_handle = thread::spawn(move || -> Result<(), modbus::udp_server::UdpServerError> {
-            let mut server = UdpServer::new(bit_access_store());
-            for _ in 0..4 {
-                server.serve_one(&server_socket, UNIT_ID)?;
-            }
-            Ok(())
-        });
+        let server_handle =
+            thread::spawn(move || -> Result<(), modbus::udp_server::UdpServerError> {
+                let mut server = UdpServer::new(bit_access_store());
+                for _ in 0..4 {
+                    server.serve_one(&server_socket, UNIT_ID)?;
+                }
+                Ok(())
+            });
 
         let client_socket = UdpSocket::bind("127.0.0.1:0")?;
         let mut client = UdpClient::new(UdpTransport::new(client_socket, server_addr));

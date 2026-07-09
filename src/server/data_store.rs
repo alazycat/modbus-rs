@@ -5,6 +5,7 @@
 
 use alloc::vec;
 use alloc::vec::Vec;
+use std::sync::{Arc, Mutex};
 
 use crate::exception::ExceptionCode;
 use crate::function_codes::read_file_record::{
@@ -366,12 +367,7 @@ impl MemoryStore {
 
     /// Set the data returned by FC 0x14 Read File Record for a given file and
     /// record number.
-    pub fn set_file_record(
-        &mut self,
-        file_number: u16,
-        record_number: u16,
-        data: Vec<u8>,
-    ) {
+    pub fn set_file_record(&mut self, file_number: u16, record_number: u16, data: Vec<u8>) {
         let key = (file_number, record_number);
         if let Some(pos) = self.file_records.iter().position(|(k, _)| *k == key) {
             self.file_records[pos].1 = data;
@@ -397,6 +393,128 @@ impl MemoryStore {
         }
         self.discrete_inputs[address as usize..end].copy_from_slice(values);
         Ok(())
+    }
+}
+
+/// A thread-safe, shareable wrapper around [`MemoryStore`].
+#[derive(Clone, Debug)]
+pub struct SharedStore(Arc<Mutex<MemoryStore>>);
+
+impl SharedStore {
+    /// Create a new shared store wrapping `store`.
+    pub fn new(store: MemoryStore) -> Self {
+        Self(Arc::new(Mutex::new(store)))
+    }
+}
+
+impl DataStore for SharedStore {
+    fn read_coils(&self, address: u16, quantity: u16) -> Result<Vec<u8>, ExceptionCode> {
+        self.0.lock().unwrap().read_coils(address, quantity)
+    }
+
+    fn read_discrete_inputs(
+        &self,
+        address: u16,
+        quantity: u16,
+    ) -> Result<Vec<u8>, ExceptionCode> {
+        self.0
+            .lock()
+            .unwrap()
+            .read_discrete_inputs(address, quantity)
+    }
+
+    fn read_holding_registers(
+        &self,
+        address: u16,
+        quantity: u16,
+    ) -> Result<Vec<u8>, ExceptionCode> {
+        self.0
+            .lock()
+            .unwrap()
+            .read_holding_registers(address, quantity)
+    }
+
+    fn read_input_registers(
+        &self,
+        address: u16,
+        quantity: u16,
+    ) -> Result<Vec<u8>, ExceptionCode> {
+        self.0
+            .lock()
+            .unwrap()
+            .read_input_registers(address, quantity)
+    }
+
+    fn write_coil(&mut self, address: u16, value: bool) -> Result<(), ExceptionCode> {
+        self.0.lock().unwrap().write_coil(address, value)
+    }
+
+    fn write_register(&mut self, address: u16, value: u16) -> Result<(), ExceptionCode> {
+        self.0.lock().unwrap().write_register(address, value)
+    }
+
+    fn write_coils(&mut self, address: u16, values: &[bool]) -> Result<(), ExceptionCode> {
+        self.0.lock().unwrap().write_coils(address, values)
+    }
+
+    fn write_registers(&mut self, address: u16, values: &[u16]) -> Result<(), ExceptionCode> {
+        self.0.lock().unwrap().write_registers(address, values)
+    }
+
+    fn read_exception_status(&self) -> Result<u8, ExceptionCode> {
+        self.0.lock().unwrap().read_exception_status()
+    }
+
+    fn diagnostics(
+        &mut self,
+        sub_function: u16,
+        data: u16,
+    ) -> Result<(u16, u16), ExceptionCode> {
+        self.0.lock().unwrap().diagnostics(sub_function, data)
+    }
+
+    fn get_comm_event_counter(&self) -> Result<(u16, u16), ExceptionCode> {
+        self.0.lock().unwrap().get_comm_event_counter()
+    }
+
+    fn get_comm_event_log(&self) -> Result<(u16, u16, u16, Vec<u8>), ExceptionCode> {
+        self.0.lock().unwrap().get_comm_event_log()
+    }
+
+    fn report_server_id(&self) -> Result<Vec<u8>, ExceptionCode> {
+        self.0.lock().unwrap().report_server_id()
+    }
+
+    fn read_fifo_queue(
+        &self,
+        fifo_pointer_address: u16,
+    ) -> Result<(u16, Vec<u8>), ExceptionCode> {
+        self.0.lock().unwrap().read_fifo_queue(fifo_pointer_address)
+    }
+
+    fn read_file_record(
+        &self,
+        sub_requests: &[ReadFileRecordSubRequest],
+    ) -> Result<Vec<ReadFileRecordSubResponse>, ExceptionCode> {
+        self.0.lock().unwrap().read_file_record(sub_requests)
+    }
+
+    fn write_file_record(
+        &mut self,
+        sub_requests: &[WriteFileRecordSubRequest],
+    ) -> Result<Vec<WriteFileRecordSubResponse>, ExceptionCode> {
+        self.0.lock().unwrap().write_file_record(sub_requests)
+    }
+
+    fn encapsulated_interface_transport(
+        &self,
+        mei_type: u8,
+        data: &[u8],
+    ) -> Result<(u8, Vec<u8>), ExceptionCode> {
+        self.0
+            .lock()
+            .unwrap()
+            .encapsulated_interface_transport(mei_type, data)
     }
 }
 
@@ -458,5 +576,15 @@ mod tests {
             store.write_register(1, 0x00FF),
             Err(ExceptionCode::IllegalDataAddress)
         );
+    }
+
+    #[test]
+    fn shared_store_is_cloneable_and_mutable_across_handles() {
+        let mut store = SharedStore::new(MemoryStore::new(0, 0, 1, 0));
+        store.write_register(0, 0xABCD).unwrap();
+
+        let cloned = store.clone();
+        let bytes = cloned.read_holding_registers(0, 1).unwrap();
+        assert_eq!(bytes, vec![0xAB, 0xCD]);
     }
 }

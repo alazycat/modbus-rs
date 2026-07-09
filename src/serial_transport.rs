@@ -161,7 +161,9 @@ mod tests {
         transport.send(&encoded_request[..n]).unwrap();
 
         let mut buf = [0u8; 64];
-        let received = transport.recv(&mut buf, Duration::from_millis(100)).unwrap();
+        let received = transport
+            .recv(&mut buf, Duration::from_millis(100))
+            .unwrap();
         let decoded = RtuAdu::decode(&buf[..received]).unwrap();
         assert_eq!(decoded, response);
     }
@@ -187,7 +189,9 @@ mod tests {
         transport.send(&encoded_request[..n]).unwrap();
 
         let mut buf = [0u8; 64];
-        let received = transport.recv(&mut buf, Duration::from_millis(100)).unwrap();
+        let received = transport
+            .recv(&mut buf, Duration::from_millis(100))
+            .unwrap();
         let decoded = AsciiAdu::decode(&buf[..received]).unwrap();
         assert_eq!(decoded, response);
     }

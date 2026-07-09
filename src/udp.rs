@@ -105,33 +105,52 @@ mod tests {
 
     #[test]
     fn decode_rejects_non_zero_protocol_id() {
-        let buf = [0x00, 0x01, 0x00, 0x01, 0x00, 0x06, 0x0A, 0x03, 0x00, 0x00, 0x00, 0x0A];
-        assert!(matches!(UdpAdu::decode(&buf), Err(DecodeError::InvalidValue)));
+        let buf = [
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x06, 0x0A, 0x03, 0x00, 0x00, 0x00, 0x0A,
+        ];
+        assert!(matches!(
+            UdpAdu::decode(&buf),
+            Err(DecodeError::InvalidValue)
+        ));
     }
 
     #[test]
     fn decode_rejects_zero_length() {
         let buf = [0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x0A];
-        assert!(matches!(UdpAdu::decode(&buf), Err(DecodeError::InvalidValue)));
+        assert!(matches!(
+            UdpAdu::decode(&buf),
+            Err(DecodeError::InvalidValue)
+        ));
     }
 
     #[test]
     fn decode_rejects_datagram_shorter_than_length() {
         let buf = [0x00, 0x01, 0x00, 0x00, 0x00, 0x06, 0x0A, 0x03];
-        assert!(matches!(UdpAdu::decode(&buf), Err(DecodeError::InvalidLength)));
+        assert!(matches!(
+            UdpAdu::decode(&buf),
+            Err(DecodeError::InvalidLength)
+        ));
     }
 
     #[test]
     fn decode_rejects_datagram_longer_than_length() {
-        let mut buf = [0x00, 0x01, 0x00, 0x00, 0x00, 0x06, 0x0A, 0x03, 0x00, 0x00, 0x00, 0x0A];
+        let mut buf = [
+            0x00, 0x01, 0x00, 0x00, 0x00, 0x06, 0x0A, 0x03, 0x00, 0x00, 0x00, 0x0A,
+        ];
         buf[5] = 0x02; // length claims unit ID + 1 PDU byte
-        assert!(matches!(UdpAdu::decode(&buf), Err(DecodeError::InvalidLength)));
+        assert!(matches!(
+            UdpAdu::decode(&buf),
+            Err(DecodeError::InvalidLength)
+        ));
     }
 
     #[test]
     fn encode_rejects_too_small_buffer() {
         let adu = UdpAdu::new(0x0001, 0x0A, vec![0x03, 0x00, 0x00, 0x00, 0x0A]);
         let mut buf = [0u8; 4];
-        assert!(matches!(adu.encode(&mut buf), Err(EncodeError::BufferTooSmall)));
+        assert!(matches!(
+            adu.encode(&mut buf),
+            Err(EncodeError::BufferTooSmall)
+        ));
     }
 }

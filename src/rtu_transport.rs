@@ -75,9 +75,7 @@ impl<T: Read + Write> Transport for RtuTransport<T> {
                     if frame.len() > RtuAdu::MAX_FRAME_SIZE {
                         return Err(TransportError::Disconnected);
                     }
-                    if frame.len() >= RtuAdu::MIN_FRAME_SIZE
-                        && RtuAdu::decode(&frame).is_ok()
-                    {
+                    if frame.len() >= RtuAdu::MIN_FRAME_SIZE && RtuAdu::decode(&frame).is_ok() {
                         complete = true;
                         break;
                     }
@@ -144,7 +142,10 @@ impl<T> AsyncRtuTransport<T> {
 #[cfg(feature = "async")]
 impl<T: AsyncReadExt + AsyncWriteExt + Unpin + Send> AsyncTransport for AsyncRtuTransport<T> {
     async fn send(&mut self, data: &[u8]) -> Result<(), TransportError> {
-        self.stream.write_all(data).await.map_err(TransportError::Io)?;
+        self.stream
+            .write_all(data)
+            .await
+            .map_err(TransportError::Io)?;
         self.stream.flush().await.map_err(TransportError::Io)
     }
 
@@ -168,16 +169,16 @@ impl<T: AsyncReadExt + AsyncWriteExt + Unpin + Send> AsyncTransport for AsyncRtu
                     if frame.len() > RtuAdu::MAX_FRAME_SIZE {
                         return Err(TransportError::Disconnected);
                     }
-                    if frame.len() >= RtuAdu::MIN_FRAME_SIZE
-                        && RtuAdu::decode(&frame).is_ok()
-                    {
+                    if frame.len() >= RtuAdu::MIN_FRAME_SIZE && RtuAdu::decode(&frame).is_ok() {
                         complete = true;
                         break;
                     }
                 }
                 Ok(Ok(_)) => unreachable!("single-byte read returned more than one byte"),
                 Ok(Err(e)) => {
-                    if e.kind() == std::io::ErrorKind::TimedOut || e.kind() == std::io::ErrorKind::WouldBlock {
+                    if e.kind() == std::io::ErrorKind::TimedOut
+                        || e.kind() == std::io::ErrorKind::WouldBlock
+                    {
                         if frame.is_empty() {
                             return Err(TransportError::Timeout);
                         }
@@ -277,16 +278,14 @@ mod tests {
                 .map_err(|_| TransportError::Disconnected)?;
             let response = RtuAdu::new(request.address, pdu_response[..n].to_vec());
             let mut adu = [0u8; 512];
-            let m = response.encode(&mut adu).map_err(|_| TransportError::Disconnected)?;
+            let m = response
+                .encode(&mut adu)
+                .map_err(|_| TransportError::Disconnected)?;
             self.pending = Some(adu[..m].to_vec());
             Ok(())
         }
 
-        fn recv(
-            &mut self,
-            buf: &mut [u8],
-            _timeout: Duration,
-        ) -> Result<usize, TransportError> {
+        fn recv(&mut self, buf: &mut [u8], _timeout: Duration) -> Result<usize, TransportError> {
             let data = self.pending.take().ok_or(TransportError::Disconnected)?;
             if buf.len() < data.len() {
                 return Err(TransportError::Disconnected);
@@ -300,7 +299,10 @@ mod tests {
     fn read_coils_over_rtu() {
         let store = MemoryStore::new(16, 0, 0, 0);
         let mut server = Server::new(store);
-        server.store_mut().write_coils(0, &[true, false, true, true]).unwrap();
+        server
+            .store_mut()
+            .write_coils(0, &[true, false, true, true])
+            .unwrap();
 
         let config = ClientConfig {
             timeout: Duration::from_secs(1),
@@ -340,7 +342,9 @@ mod tests {
         }
 
         let mut transport = RtuTransport::new(ShortStream);
-        transport.send(&[0x01, 0x03, 0x00, 0x00, 0x00, 0x0A]).unwrap();
+        transport
+            .send(&[0x01, 0x03, 0x00, 0x00, 0x00, 0x0A])
+            .unwrap();
         let mut buf = [0u8; 64];
         let err = transport
             .recv(&mut buf, Duration::from_millis(10))
@@ -492,10 +496,7 @@ mod async_tests {
             fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
                 Poll::Ready(Ok(()))
             }
-            fn poll_shutdown(
-                self: Pin<&mut Self>,
-                _cx: &mut Context<'_>,
-            ) -> Poll<io::Result<()>> {
+            fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
                 Poll::Ready(Ok(()))
             }
         }

@@ -125,7 +125,10 @@ mod tests {
         let mut buf = [0u8; 10];
         let n = req.encode(&mut buf).unwrap();
         assert_eq!(n, 10);
-        assert_eq!(buf, [0x10, 0x00, 0x01, 0x00, 0x02, 0x04, 0x00, 0x0A, 0x01, 0x02]);
+        assert_eq!(
+            buf,
+            [0x10, 0x00, 0x01, 0x00, 0x02, 0x04, 0x00, 0x0A, 0x01, 0x02]
+        );
 
         let decoded = WriteMultipleRegistersRequest::decode(&buf).unwrap();
         assert_eq!(decoded, req);

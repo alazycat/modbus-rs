@@ -270,14 +270,14 @@ impl<T> AsyncAsciiTransport<T> {
 #[cfg(feature = "async")]
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> AsyncTransport for AsyncAsciiTransport<T> {
     async fn send(&mut self, data: &[u8]) -> Result<(), TransportError> {
-        self.stream.write_all(data).await.map_err(TransportError::Io)?;
+        self.stream
+            .write_all(data)
+            .await
+            .map_err(TransportError::Io)?;
         self.stream.flush().await.map_err(TransportError::Io)
     }
 
-    async fn recv(&mut self,
-        buf: &mut [u8],
-        timeout: Duration,
-    ) -> Result<usize, TransportError> {
+    async fn recv(&mut self, buf: &mut [u8], timeout: Duration) -> Result<usize, TransportError> {
         let mut frame = Vec::new();
         let mut byte = [0u8; 1];
 

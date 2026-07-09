@@ -7,7 +7,6 @@
 
 use std::fmt;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
@@ -16,8 +15,7 @@ use tracing::{error, info};
 
 use modbus::client::{AsyncClient, ClientConfig};
 use modbus::rtu_transport::open_serial_rtu;
-use modbus::exception::ExceptionCode;
-use modbus::server::{DataStore, MemoryStore};
+use modbus::server::{MemoryStore, SharedStore};
 use modbus::tcp_client::{AsyncTcpClient, TcpClientConfig};
 use modbus::tcp_server::AsyncTcpServer;
 use modbus::tcp_transport::AsyncTcpTransport;
@@ -236,106 +234,6 @@ fn parse<T>(
     })
 }
 
-#[derive(Clone)]
-struct SharedStore(Arc<Mutex<MemoryStore>>);
-
-impl SharedStore {
-    fn new(store: MemoryStore) -> Self {
-        Self(Arc::new(Mutex::new(store)))
-    }
-}
-
-impl DataStore for SharedStore {
-    fn read_coils(&self, address: u16, quantity: u16) -> Result<Vec<u8>, ExceptionCode> {
-        self.0.lock().unwrap().read_coils(address, quantity)
-    }
-
-    fn read_discrete_inputs(&self, address: u16, quantity: u16) -> Result<Vec<u8>, ExceptionCode> {
-        self.0.lock().unwrap().read_discrete_inputs(address, quantity)
-    }
-
-    fn read_holding_registers(
-        &self,
-        address: u16,
-        quantity: u16,
-    ) -> Result<Vec<u8>, ExceptionCode> {
-        self.0.lock().unwrap().read_holding_registers(address, quantity)
-    }
-
-    fn read_input_registers(&self, address: u16, quantity: u16) -> Result<Vec<u8>, ExceptionCode> {
-        self.0.lock().unwrap().read_input_registers(address, quantity)
-    }
-
-    fn write_coil(&mut self, address: u16, value: bool) -> Result<(), ExceptionCode> {
-        self.0.lock().unwrap().write_coil(address, value)
-    }
-
-    fn write_register(&mut self, address: u16, value: u16) -> Result<(), ExceptionCode> {
-        self.0.lock().unwrap().write_register(address, value)
-    }
-
-    fn write_coils(&mut self, address: u16, values: &[bool]) -> Result<(), ExceptionCode> {
-        self.0.lock().unwrap().write_coils(address, values)
-    }
-
-    fn write_registers(&mut self, address: u16, values: &[u16]) -> Result<(), ExceptionCode> {
-        self.0.lock().unwrap().write_registers(address, values)
-    }
-
-    fn read_exception_status(&self) -> Result<u8, ExceptionCode> {
-        self.0.lock().unwrap().read_exception_status()
-    }
-
-    fn diagnostics(
-        &mut self,
-        sub_function: u16,
-        data: u16,
-    ) -> Result<(u16, u16), ExceptionCode> {
-        self.0.lock().unwrap().diagnostics(sub_function, data)
-    }
-
-    fn get_comm_event_counter(&self) -> Result<(u16, u16), ExceptionCode> {
-        self.0.lock().unwrap().get_comm_event_counter()
-    }
-
-    fn get_comm_event_log(&self) -> Result<(u16, u16, u16, Vec<u8>), ExceptionCode> {
-        self.0.lock().unwrap().get_comm_event_log()
-    }
-
-    fn report_server_id(&self) -> Result<Vec<u8>, ExceptionCode> {
-        self.0.lock().unwrap().report_server_id()
-    }
-
-    fn read_fifo_queue(&self, fifo_pointer_address: u16) -> Result<(u16, Vec<u8>), ExceptionCode> {
-        self.0.lock().unwrap().read_fifo_queue(fifo_pointer_address)
-    }
-
-    fn read_file_record(
-        &self,
-        sub_requests: &[modbus::ReadFileRecordSubRequest],
-    ) -> Result<Vec<modbus::ReadFileRecordSubResponse>, ExceptionCode> {
-        self.0.lock().unwrap().read_file_record(sub_requests)
-    }
-
-    fn write_file_record(
-        &mut self,
-        sub_requests: &[modbus::WriteFileRecordSubRequest],
-    ) -> Result<Vec<modbus::WriteFileRecordSubResponse>, ExceptionCode> {
-        self.0.lock().unwrap().write_file_record(sub_requests)
-    }
-
-    fn encapsulated_interface_transport(
-        &self,
-        mei_type: u8,
-        data: &[u8],
-    ) -> Result<(u8, Vec<u8>), ExceptionCode> {
-        self.0
-            .lock()
-            .unwrap()
-            .encapsulated_interface_transport(mei_type, data)
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tracing_subscriber::fmt()
@@ -391,7 +289,9 @@ where
             println!("{}", format_hex(&bytes));
         }
         ClientOp::ReadHoldingRegisters { address, quantity } => {
-            let bytes = client.read_holding_registers(unit_id, address, quantity).await?;
+            let bytes = client
+                .read_holding_registers(unit_id, address, quantity)
+                .await?;
             println!("{}", format_hex(&bytes));
         }
         ClientOp::WriteCoil { address, value } => {
@@ -407,12 +307,7 @@ where
 }
 
 trait ClientMethods<E: std::error::Error> {
-    async fn read_coils(
-        &mut self,
-        unit_id: u8,
-        address: u16,
-        quantity: u16,
-    ) -> Result<Vec<u8>, E>;
+    async fn read_coils(&mut self, unit_id: u8, address: u16, quantity: u16) -> Result<Vec<u8>, E>;
     async fn read_holding_registers(
         &mut self,
         unit_id: u8,
@@ -441,7 +336,9 @@ where
         address: u16,
         quantity: u16,
     ) -> Result<Vec<u8>, modbus::tcp_client::TcpClientError> {
-        (**self).read_holding_registers(unit_id, address, quantity).await
+        (**self)
+            .read_holding_registers(unit_id, address, quantity)
+            .await
     }
     async fn write_coil(
         &mut self,
@@ -479,7 +376,9 @@ where
         address: u16,
         quantity: u16,
     ) -> Result<Vec<u8>, modbus::client::ClientError> {
-        (**self).read_holding_registers(unit_id, address, quantity).await
+        (**self)
+            .read_holding_registers(unit_id, address, quantity)
+            .await
     }
     async fn write_coil(
         &mut self,

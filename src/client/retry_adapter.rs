@@ -78,9 +78,7 @@ where
                     }
                     std::thread::sleep(backoff);
                     self.adapter = (self.factory)()?;
-                    backoff = backoff
-                        .saturating_add(backoff)
-                        .min(self.policy.max_backoff);
+                    backoff = backoff.saturating_add(backoff).min(self.policy.max_backoff);
                 }
             }
         }
@@ -154,9 +152,7 @@ where
                     }
                     tokio::time::sleep(backoff).await;
                     self.adapter = (self.factory)().await?;
-                    backoff = backoff
-                        .saturating_add(backoff)
-                        .min(self.policy.max_backoff);
+                    backoff = backoff.saturating_add(backoff).min(self.policy.max_backoff);
                 }
             }
         }
@@ -199,11 +195,15 @@ mod tests {
             let adapter = MockAdapter::new(alloc::vec![Ok(alloc::vec![0x03, 0x02, 0x00, 0x0A])]);
             let mut retry = RetryAdapter::new(
                 adapter,
-                || -> Result<MockAdapter, ClientError> { unreachable!("factory should not be called") },
+                || -> Result<MockAdapter, ClientError> {
+                    unreachable!("factory should not be called")
+                },
                 RetryPolicy::default(),
             );
 
-            let response = retry.send_receive(0x01, &[0x03, 0x00, 0x00, 0x00, 0x0A]).unwrap();
+            let response = retry
+                .send_receive(0x01, &[0x03, 0x00, 0x00, 0x00, 0x0A])
+                .unwrap();
             assert_eq!(response, alloc::vec![0x03, 0x02, 0x00, 0x0A]);
         }
 
@@ -256,7 +256,10 @@ mod tests {
             let err = retry
                 .send_receive(0x01, &[0x03, 0x00, 0x00, 0x00, 0x0A])
                 .unwrap_err();
-            assert!(matches!(err, ClientError::Transport(TransportError::Disconnected)));
+            assert!(matches!(
+                err,
+                ClientError::Transport(TransportError::Disconnected)
+            ));
             // Initial failure + 2 retries = 3 attempts total.
             assert_eq!(call_count, 2);
         }
@@ -317,7 +320,8 @@ mod tests {
 
         #[tokio::test]
         async fn succeeds_without_retry() {
-            let adapter = MockAsyncAdapter::new(alloc::vec![Ok(alloc::vec![0x03, 0x02, 0x00, 0x0A])]);
+            let adapter =
+                MockAsyncAdapter::new(alloc::vec![Ok(alloc::vec![0x03, 0x02, 0x00, 0x0A])]);
             let mut retry = AsyncRetryAdapter::new(
                 adapter,
                 || async { unreachable!("factory should not be called") },
@@ -370,9 +374,9 @@ mod tests {
                         let call_count = Arc::clone(&call_count);
                         async move {
                             call_count.fetch_add(1, Ordering::SeqCst);
-                            Ok(MockAsyncAdapter::new(alloc::vec![Err(ClientError::Transport(
-                                TransportError::Disconnected,
-                            ))]))
+                            Ok(MockAsyncAdapter::new(alloc::vec![Err(
+                                ClientError::Transport(TransportError::Disconnected,)
+                            )]))
                         }
                     }
                 },

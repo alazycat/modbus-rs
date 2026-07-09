@@ -59,7 +59,10 @@ impl UdpTransport {
 #[cfg(feature = "sync")]
 impl Transport for UdpTransport {
     fn send(&mut self, data: &[u8]) -> Result<(), TransportError> {
-        let n = self.socket.send_to(data, self.remote).map_err(TransportError::Io)?;
+        let n = self
+            .socket
+            .send_to(data, self.remote)
+            .map_err(TransportError::Io)?;
         if n != data.len() {
             return Err(TransportError::Io(io::Error::new(
                 io::ErrorKind::WriteZero,
@@ -69,15 +72,13 @@ impl Transport for UdpTransport {
         Ok(())
     }
 
-    fn recv(
-        &mut self,
-        buf: &mut [u8],
-        timeout: Duration,
-    ) -> Result<usize, TransportError> {
+    fn recv(&mut self, buf: &mut [u8], timeout: Duration) -> Result<usize, TransportError> {
         if timeout.is_zero() {
             return Err(TransportError::Timeout);
         }
-        self.socket.set_read_timeout(Some(timeout)).map_err(TransportError::Io)?;
+        self.socket
+            .set_read_timeout(Some(timeout))
+            .map_err(TransportError::Io)?;
         let (n, peer) = self.socket.recv_from(buf).map_err(|e| {
             if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut {
                 TransportError::Timeout
@@ -156,9 +157,7 @@ mod tests {
 
         let mut transport = UdpTransport::new(client_socket, server_addr);
         let mut buf = [0u8; 64];
-        let err = transport
-            .recv(&mut buf, Duration::ZERO)
-            .unwrap_err();
+        let err = transport.recv(&mut buf, Duration::ZERO).unwrap_err();
         assert!(matches!(err, TransportError::Timeout));
     }
 
@@ -240,11 +239,7 @@ impl AsyncTransport for AsyncUdpTransport {
         Ok(())
     }
 
-    async fn recv(
-        &mut self,
-        buf: &mut [u8],
-        timeout: Duration,
-    ) -> Result<usize, TransportError> {
+    async fn recv(&mut self, buf: &mut [u8], timeout: Duration) -> Result<usize, TransportError> {
         if timeout.is_zero() {
             return Err(TransportError::Timeout);
         }
@@ -287,7 +282,10 @@ mod async_tests {
             let mut buf = [0u8; 64];
             let (len, src) = server_socket.recv_from(&mut buf).await.unwrap();
             assert_eq!(&buf[..len], &encoded_request[..n]);
-            server_socket.send_to(&encoded_response[..m], src).await.unwrap();
+            server_socket
+                .send_to(&encoded_response[..m], src)
+                .await
+                .unwrap();
         });
 
         let mut transport = AsyncUdpTransport::new(client_socket, server_addr);
@@ -327,10 +325,7 @@ mod async_tests {
 
         let mut transport = AsyncUdpTransport::new(client_socket, server_addr);
         let mut buf = [0u8; 64];
-        let err = transport
-            .recv(&mut buf, Duration::ZERO)
-            .await
-            .unwrap_err();
+        let err = transport.recv(&mut buf, Duration::ZERO).await.unwrap_err();
         assert!(matches!(err, TransportError::Timeout));
     }
 

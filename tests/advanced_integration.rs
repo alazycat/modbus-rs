@@ -39,13 +39,21 @@ fn assert_advanced_results(
         "comm event log mismatch"
     );
     assert_eq!(server_id, vec![0x11, 0x22, 0x33], "server ID mismatch");
-    assert_eq!(mask_echo, (0, 0x00FF, 0x0001), "mask write register echo mismatch");
+    assert_eq!(
+        mask_echo,
+        (0, 0x00FF, 0x0001),
+        "mask write register echo mismatch"
+    );
     assert_eq!(
         read_write,
         vec![0x00, 0x34, 0x00, 0x00],
         "read/write multiple registers mismatch"
     );
-    assert_eq!(fifo, (2, vec![0x01, 0x02, 0x03, 0x04]), "FIFO queue mismatch");
+    assert_eq!(
+        fifo,
+        (2, vec![0x01, 0x02, 0x03, 0x04]),
+        "FIFO queue mismatch"
+    );
 }
 
 #[cfg(all(feature = "sync", feature = "rtu"))]
@@ -64,11 +72,12 @@ mod sync_rtu {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         let addr = listener.local_addr()?;
 
-        let server_handle = thread::spawn(move || -> Result<(), modbus::rtu_server::RtuServerError> {
-            let (mut stream, _) = listener.accept()?;
-            let mut server = RtuServer::new(advanced_store());
-            server.serve(&mut stream, UNIT_ID)
-        });
+        let server_handle =
+            thread::spawn(move || -> Result<(), modbus::rtu_server::RtuServerError> {
+                let (mut stream, _) = listener.accept()?;
+                let mut server = RtuServer::new(advanced_store());
+                server.serve(&mut stream, UNIT_ID)
+            });
 
         let stream = TcpStream::connect(addr)?;
         let mut client = Client::new(RtuTransport::new(stream));
@@ -79,7 +88,8 @@ mod sync_rtu {
         let log = client.get_comm_event_log(UNIT_ID)?;
         let server_id = client.report_server_id(UNIT_ID)?;
         let mask_echo = client.mask_write_register(UNIT_ID, 0, 0x00FF, 0x0001)?;
-        let read_write = client.read_write_multiple_registers(UNIT_ID, 0, 2, 2, &[0xDEAD, 0xBEEF])?;
+        let read_write =
+            client.read_write_multiple_registers(UNIT_ID, 0, 2, 2, &[0xDEAD, 0xBEEF])?;
         let fifo = client.read_fifo_queue(UNIT_ID, 0)?;
 
         assert_advanced_results(
@@ -115,11 +125,12 @@ mod sync_tcp {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         let addr = listener.local_addr()?;
 
-        let server_handle = thread::spawn(move || -> Result<(), modbus::tcp_server::TcpServerError> {
-            let (mut stream, _) = listener.accept()?;
-            let mut server = TcpServer::new(advanced_store());
-            server.serve(&mut stream, UNIT_ID)
-        });
+        let server_handle =
+            thread::spawn(move || -> Result<(), modbus::tcp_server::TcpServerError> {
+                let (mut stream, _) = listener.accept()?;
+                let mut server = TcpServer::new(advanced_store());
+                server.serve(&mut stream, UNIT_ID)
+            });
 
         let stream = TcpStream::connect(addr)?;
         let mut client = TcpClient::new(TcpTransport::new(stream));
@@ -130,7 +141,8 @@ mod sync_tcp {
         let log = client.get_comm_event_log(UNIT_ID)?;
         let server_id = client.report_server_id(UNIT_ID)?;
         let mask_echo = client.mask_write_register(UNIT_ID, 0, 0x00FF, 0x0001)?;
-        let read_write = client.read_write_multiple_registers(UNIT_ID, 0, 2, 2, &[0xDEAD, 0xBEEF])?;
+        let read_write =
+            client.read_write_multiple_registers(UNIT_ID, 0, 2, 2, &[0xDEAD, 0xBEEF])?;
         let fifo = client.read_fifo_queue(UNIT_ID, 0)?;
 
         assert_advanced_results(
@@ -166,13 +178,14 @@ mod sync_udp {
         let server_socket = UdpSocket::bind("127.0.0.1:0")?;
         let server_addr = server_socket.local_addr()?;
 
-        let server_handle = thread::spawn(move || -> Result<(), modbus::udp_server::UdpServerError> {
-            let mut server = UdpServer::new(advanced_store());
-            for _ in 0..8 {
-                server.serve_one(&server_socket, UNIT_ID)?;
-            }
-            Ok(())
-        });
+        let server_handle =
+            thread::spawn(move || -> Result<(), modbus::udp_server::UdpServerError> {
+                let mut server = UdpServer::new(advanced_store());
+                for _ in 0..8 {
+                    server.serve_one(&server_socket, UNIT_ID)?;
+                }
+                Ok(())
+            });
 
         let client_socket = UdpSocket::bind("127.0.0.1:0")?;
         let mut client = UdpClient::new(UdpTransport::new(client_socket, server_addr));
@@ -183,7 +196,8 @@ mod sync_udp {
         let log = client.get_comm_event_log(UNIT_ID)?;
         let server_id = client.report_server_id(UNIT_ID)?;
         let mask_echo = client.mask_write_register(UNIT_ID, 0, 0x00FF, 0x0001)?;
-        let read_write = client.read_write_multiple_registers(UNIT_ID, 0, 2, 2, &[0xDEAD, 0xBEEF])?;
+        let read_write =
+            client.read_write_multiple_registers(UNIT_ID, 0, 2, 2, &[0xDEAD, 0xBEEF])?;
         let fifo = client.read_fifo_queue(UNIT_ID, 0)?;
 
         assert_advanced_results(
@@ -235,7 +249,8 @@ mod sync_ascii {
         let log = client.get_comm_event_log(UNIT_ID)?;
         let server_id = client.report_server_id(UNIT_ID)?;
         let mask_echo = client.mask_write_register(UNIT_ID, 0, 0x00FF, 0x0001)?;
-        let read_write = client.read_write_multiple_registers(UNIT_ID, 0, 2, 2, &[0xDEAD, 0xBEEF])?;
+        let read_write =
+            client.read_write_multiple_registers(UNIT_ID, 0, 2, 2, &[0xDEAD, 0xBEEF])?;
         let fifo = client.read_fifo_queue(UNIT_ID, 0)?;
 
         assert_advanced_results(
@@ -282,7 +297,9 @@ mod async_rtu {
         let counter = client.get_comm_event_counter(UNIT_ID).await?;
         let log = client.get_comm_event_log(UNIT_ID).await?;
         let server_id = client.report_server_id(UNIT_ID).await?;
-        let mask_echo = client.mask_write_register(UNIT_ID, 0, 0x00FF, 0x0001).await?;
+        let mask_echo = client
+            .mask_write_register(UNIT_ID, 0, 0x00FF, 0x0001)
+            .await?;
         let read_write = client
             .read_write_multiple_registers(UNIT_ID, 0, 2, 2, &[0xDEAD, 0xBEEF])
             .await?;
@@ -332,7 +349,9 @@ mod async_tcp {
         let counter = client.get_comm_event_counter(UNIT_ID).await?;
         let log = client.get_comm_event_log(UNIT_ID).await?;
         let server_id = client.report_server_id(UNIT_ID).await?;
-        let mask_echo = client.mask_write_register(UNIT_ID, 0, 0x00FF, 0x0001).await?;
+        let mask_echo = client
+            .mask_write_register(UNIT_ID, 0, 0x00FF, 0x0001)
+            .await?;
         let read_write = client
             .read_write_multiple_registers(UNIT_ID, 0, 2, 2, &[0xDEAD, 0xBEEF])
             .await?;
@@ -384,7 +403,9 @@ mod async_udp {
         let counter = client.get_comm_event_counter(UNIT_ID).await?;
         let log = client.get_comm_event_log(UNIT_ID).await?;
         let server_id = client.report_server_id(UNIT_ID).await?;
-        let mask_echo = client.mask_write_register(UNIT_ID, 0, 0x00FF, 0x0001).await?;
+        let mask_echo = client
+            .mask_write_register(UNIT_ID, 0, 0x00FF, 0x0001)
+            .await?;
         let read_write = client
             .read_write_multiple_registers(UNIT_ID, 0, 2, 2, &[0xDEAD, 0xBEEF])
             .await?;
@@ -433,7 +454,9 @@ mod async_ascii {
         let counter = client.get_comm_event_counter(UNIT_ID).await?;
         let log = client.get_comm_event_log(UNIT_ID).await?;
         let server_id = client.report_server_id(UNIT_ID).await?;
-        let mask_echo = client.mask_write_register(UNIT_ID, 0, 0x00FF, 0x0001).await?;
+        let mask_echo = client
+            .mask_write_register(UNIT_ID, 0, 0x00FF, 0x0001)
+            .await?;
         let read_write = client
             .read_write_multiple_registers(UNIT_ID, 0, 2, 2, &[0xDEAD, 0xBEEF])
             .await?;

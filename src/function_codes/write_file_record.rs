@@ -97,7 +97,11 @@ impl WriteFileRecordRequest {
 
     /// Encode the request into `buf` and return the number of bytes written.
     pub fn encode(&self, buf: &mut [u8]) -> Result<usize, EncodeError> {
-        let byte_count: usize = self.sub_requests.iter().map(|s| 7 + s.record_data.len()).sum();
+        let byte_count: usize = self
+            .sub_requests
+            .iter()
+            .map(|s| 7 + s.record_data.len())
+            .sum();
         if byte_count > u8::MAX as usize {
             return Err(EncodeError::BufferTooSmall);
         }
@@ -158,7 +162,11 @@ impl WriteFileRecordResponse {
 
     /// Encode the response into `buf` and return the number of bytes written.
     pub fn encode(&self, buf: &mut [u8]) -> Result<usize, EncodeError> {
-        let byte_count: usize = self.sub_responses.iter().map(|s| 7 + s.record_data.len()).sum();
+        let byte_count: usize = self
+            .sub_responses
+            .iter()
+            .map(|s| 7 + s.record_data.len())
+            .sum();
         if byte_count > u8::MAX as usize {
             return Err(EncodeError::BufferTooSmall);
         }
@@ -218,9 +226,7 @@ mod tests {
         assert_eq!(n, 13);
         assert_eq!(
             buf,
-            [
-                0x15, 0x0B, 0x06, 0x00, 0x04, 0x00, 0x01, 0x00, 0x02, 0x0D, 0xFE, 0x00, 0x20
-            ]
+            [0x15, 0x0B, 0x06, 0x00, 0x04, 0x00, 0x01, 0x00, 0x02, 0x0D, 0xFE, 0x00, 0x20]
         );
 
         let decoded = WriteFileRecordRequest::decode(&buf).unwrap();
@@ -275,9 +281,7 @@ mod tests {
         assert_eq!(n, 13);
         assert_eq!(
             buf,
-            [
-                0x15, 0x0B, 0x06, 0x00, 0x04, 0x00, 0x01, 0x00, 0x02, 0x0D, 0xFE, 0x00, 0x20
-            ]
+            [0x15, 0x0B, 0x06, 0x00, 0x04, 0x00, 0x01, 0x00, 0x02, 0x0D, 0xFE, 0x00, 0x20]
         );
 
         let decoded = WriteFileRecordResponse::decode(&buf).unwrap();

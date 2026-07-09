@@ -77,7 +77,9 @@ async fn rtu_loopback_register_access() {
         loop {
             // Swallow errors so a transient client disconnect does not stop
             // serving the next request.
-            let _ = server.serve_one(server_transport.stream_mut(), UNIT_ID).await;
+            let _ = server
+                .serve_one(server_transport.stream_mut(), UNIT_ID)
+                .await;
         }
     });
 
@@ -93,10 +95,7 @@ async fn rtu_loopback_register_access() {
         .write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC])
         .await
         .unwrap();
-    let holding = client
-        .read_holding_registers(UNIT_ID, 0, 3)
-        .await
-        .unwrap();
+    let holding = client.read_holding_registers(UNIT_ID, 0, 3).await.unwrap();
     let inputs = client.read_input_registers(UNIT_ID, 0, 3).await.unwrap();
 
     assert_register_results(&holding, &inputs);
@@ -129,10 +128,7 @@ async fn ascii_loopback_register_access() {
         .write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC])
         .await
         .unwrap();
-    let holding = client
-        .read_holding_registers(UNIT_ID, 0, 3)
-        .await
-        .unwrap();
+    let holding = client.read_holding_registers(UNIT_ID, 0, 3).await.unwrap();
     let inputs = client.read_input_registers(UNIT_ID, 0, 3).await.unwrap();
 
     assert_register_results(&holding, &inputs);

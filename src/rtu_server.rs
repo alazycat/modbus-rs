@@ -150,9 +150,7 @@ impl<D: DataStore> RtuServer<D> {
         self.serve(&mut serial, server_address)
     }
 
-    fn read_adu<T: Read + Write>(&mut self,
-        stream: &mut T,
-    ) -> Result<RtuAdu, RtuServerError> {
+    fn read_adu<T: Read + Write>(&mut self, stream: &mut T) -> Result<RtuAdu, RtuServerError> {
         let mut frame = Vec::new();
         let mut byte = [0u8; 1];
 
@@ -169,9 +167,7 @@ impl<D: DataStore> RtuServer<D> {
                     if frame.len() > RtuAdu::MAX_FRAME_SIZE {
                         return Err(RtuServerError::Disconnected);
                     }
-                    if frame.len() >= RtuAdu::MIN_FRAME_SIZE
-                        && RtuAdu::decode(&frame).is_ok()
-                    {
+                    if frame.len() >= RtuAdu::MIN_FRAME_SIZE && RtuAdu::decode(&frame).is_ok() {
                         break;
                     }
                 }
@@ -246,7 +242,9 @@ mod tests {
         let req = ReadCoilsRequest::new(address, quantity).unwrap();
         let mut pdu = [0u8; 5];
         let n = req.encode(&mut pdu).unwrap();
-        RtuAdu::new(slave, pdu[..n].to_vec()).encode(&mut [0u8; 32]).unwrap();
+        RtuAdu::new(slave, pdu[..n].to_vec())
+            .encode(&mut [0u8; 32])
+            .unwrap();
         let mut adu = [0u8; 32];
         let m = RtuAdu::new(slave, pdu[..n].to_vec())
             .encode(&mut adu)
@@ -357,9 +355,6 @@ mod tests {
         let expected = make_read_coils_response_adu(0x07, vec![0b00001101]);
         assert_eq!(stream.write_buf.len(), expected.len() * 2);
         assert_eq!(&stream.write_buf[..expected.len()], expected.as_slice());
-        assert_eq!(
-            &stream.write_buf[expected.len()..],
-            expected.as_slice()
-        );
+        assert_eq!(&stream.write_buf[expected.len()..], expected.as_slice());
     }
 }

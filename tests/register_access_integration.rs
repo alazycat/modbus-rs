@@ -44,11 +44,12 @@ mod sync_rtu {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         let addr = listener.local_addr()?;
 
-        let server_handle = thread::spawn(move || -> Result<(), modbus::rtu_server::RtuServerError> {
-            let (mut stream, _) = listener.accept()?;
-            let mut server = RtuServer::new(register_access_store());
-            server.serve(&mut stream, UNIT_ID)
-        });
+        let server_handle =
+            thread::spawn(move || -> Result<(), modbus::rtu_server::RtuServerError> {
+                let (mut stream, _) = listener.accept()?;
+                let mut server = RtuServer::new(register_access_store());
+                server.serve(&mut stream, UNIT_ID)
+            });
 
         let stream = TcpStream::connect(addr)?;
         let mut client = Client::new(RtuTransport::new(stream));
@@ -82,11 +83,12 @@ mod sync_tcp {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         let addr = listener.local_addr()?;
 
-        let server_handle = thread::spawn(move || -> Result<(), modbus::tcp_server::TcpServerError> {
-            let (mut stream, _) = listener.accept()?;
-            let mut server = TcpServer::new(register_access_store());
-            server.serve(&mut stream, UNIT_ID)
-        });
+        let server_handle =
+            thread::spawn(move || -> Result<(), modbus::tcp_server::TcpServerError> {
+                let (mut stream, _) = listener.accept()?;
+                let mut server = TcpServer::new(register_access_store());
+                server.serve(&mut stream, UNIT_ID)
+            });
 
         let stream = TcpStream::connect(addr)?;
         let mut client = TcpClient::new(TcpTransport::new(stream));
@@ -120,13 +122,14 @@ mod sync_udp {
         let server_socket = UdpSocket::bind("127.0.0.1:0")?;
         let server_addr = server_socket.local_addr()?;
 
-        let server_handle = thread::spawn(move || -> Result<(), modbus::udp_server::UdpServerError> {
-            let mut server = UdpServer::new(register_access_store());
-            for _ in 0..4 {
-                server.serve_one(&server_socket, UNIT_ID)?;
-            }
-            Ok(())
-        });
+        let server_handle =
+            thread::spawn(move || -> Result<(), modbus::udp_server::UdpServerError> {
+                let mut server = UdpServer::new(register_access_store());
+                for _ in 0..4 {
+                    server.serve_one(&server_socket, UNIT_ID)?;
+                }
+                Ok(())
+            });
 
         let client_socket = UdpSocket::bind("127.0.0.1:0")?;
         let mut client = UdpClient::new(UdpTransport::new(client_socket, server_addr));
@@ -206,7 +209,9 @@ mod async_rtu {
         let mut client = AsyncClient::new(AsyncRtuTransport::new(stream));
 
         client.write_register(UNIT_ID, 0, 0x1234).await?;
-        client.write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC]).await?;
+        client
+            .write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC])
+            .await?;
         let holding = client.read_holding_registers(UNIT_ID, 0, 3).await?;
         let inputs = client.read_input_registers(UNIT_ID, 0, 3).await?;
 
@@ -241,7 +246,9 @@ mod async_tcp {
         let mut client = AsyncTcpClient::new(AsyncTcpTransport::new(stream));
 
         client.write_register(UNIT_ID, 0, 0x1234).await?;
-        client.write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC]).await?;
+        client
+            .write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC])
+            .await?;
         let holding = client.read_holding_registers(UNIT_ID, 0, 3).await?;
         let inputs = client.read_input_registers(UNIT_ID, 0, 3).await?;
 
@@ -278,7 +285,9 @@ mod async_udp {
         let mut client = AsyncUdpClient::new(AsyncUdpTransport::new(client_socket, server_addr));
 
         client.write_register(UNIT_ID, 0, 0x1234).await?;
-        client.write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC]).await?;
+        client
+            .write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC])
+            .await?;
         let holding = client.read_holding_registers(UNIT_ID, 0, 3).await?;
         let inputs = client.read_input_registers(UNIT_ID, 0, 3).await?;
 
@@ -312,7 +321,9 @@ mod async_ascii {
         let mut client = AsyncAsciiClient::new(AsyncAsciiTransport::new(stream));
 
         client.write_register(UNIT_ID, 0, 0x1234).await?;
-        client.write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC]).await?;
+        client
+            .write_registers(UNIT_ID, 1, &[0x5678, 0x9ABC])
+            .await?;
         let holding = client.read_holding_registers(UNIT_ID, 0, 3).await?;
         let inputs = client.read_input_registers(UNIT_ID, 0, 3).await?;
 

@@ -31,14 +31,10 @@ impl ReadWriteMultipleRegistersRequest {
         write_quantity: u16,
         write_values: Vec<u8>,
     ) -> Result<Self, DecodeError> {
-        if !(Self::MIN_READ_QUANTITY..=Self::MAX_READ_QUANTITY)
-            .contains(&read_quantity)
-        {
+        if !(Self::MIN_READ_QUANTITY..=Self::MAX_READ_QUANTITY).contains(&read_quantity) {
             return Err(DecodeError::InvalidQuantity);
         }
-        if !(Self::MIN_WRITE_QUANTITY..=Self::MAX_WRITE_QUANTITY)
-            .contains(&write_quantity)
-        {
+        if !(Self::MIN_WRITE_QUANTITY..=Self::MAX_WRITE_QUANTITY).contains(&write_quantity) {
             return Err(DecodeError::InvalidQuantity);
         }
         let expected_bytes = (write_quantity as usize) * 2;
@@ -194,14 +190,14 @@ mod tests {
     #[test]
     fn request_rejects_mismatched_write_value_length() {
         // 2 write registers need 4 bytes, not 2
-        assert!(
-            ReadWriteMultipleRegistersRequest::new(0, 1, 0, 2, vec![0x00, 0x00]).is_err()
-        );
+        assert!(ReadWriteMultipleRegistersRequest::new(0, 1, 0, 2, vec![0x00, 0x00]).is_err());
     }
 
     #[test]
     fn request_decode_rejects_wrong_function_code() {
-        let buf = [0x06, 0x00, 0x03, 0x00, 0x02, 0x00, 0x0E, 0x00, 0x02, 0x04, 0x00, 0x0A, 0x01, 0x02];
+        let buf = [
+            0x06, 0x00, 0x03, 0x00, 0x02, 0x00, 0x0E, 0x00, 0x02, 0x04, 0x00, 0x0A, 0x01, 0x02,
+        ];
         assert!(matches!(
             ReadWriteMultipleRegistersRequest::decode(&buf),
             Err(DecodeError::UnknownFunctionCode)

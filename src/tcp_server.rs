@@ -423,11 +423,7 @@ impl<D: DataStore> AsyncTcpServer<D> {
     /// Continuously serve requests on `stream`.
     ///
     /// The function returns when the stream is disconnected or reaches EOF.
-    pub async fn serve<S>(
-        &mut self,
-        stream: &mut S,
-        unit_id: u8,
-    ) -> Result<(), TcpServerError>
+    pub async fn serve<S>(&mut self, stream: &mut S, unit_id: u8) -> Result<(), TcpServerError>
     where
         S: AsyncReadExt + AsyncWriteExt + Unpin,
     {
@@ -593,7 +589,10 @@ mod async_tests {
         client.write_all(&frame).await.unwrap();
         client.shutdown().await.unwrap();
 
-        let err = server.serve_one(&mut server_stream, 0x0A).await.unwrap_err();
+        let err = server
+            .serve_one(&mut server_stream, 0x0A)
+            .await
+            .unwrap_err();
         assert!(matches!(
             err,
             TcpServerError::Decode(DecodeError::InvalidValue)

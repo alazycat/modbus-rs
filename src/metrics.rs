@@ -96,8 +96,8 @@ impl Clone for Metrics {
 
 #[cfg(test)]
 mod tests {
-    use alloc::sync::Arc;
     use super::*;
+    use alloc::sync::Arc;
 
     #[test]
     fn counters_start_at_zero() {

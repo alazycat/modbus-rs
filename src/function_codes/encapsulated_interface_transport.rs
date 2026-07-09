@@ -158,7 +158,8 @@ mod tests {
                 0x01, // number of objects
                 0x01, // object id
                 0x02, // object length
-                0x41, 0x42, // object value "AB"
+                0x41,
+                0x42, // object value "AB"
             ],
         );
         let mut buf = [0u8; 11];

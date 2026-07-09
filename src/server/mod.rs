@@ -9,7 +9,7 @@ mod sync;
 #[cfg(feature = "async")]
 pub mod r#async;
 
-pub use data_store::{DataStore, MemoryStore};
+pub use data_store::{DataStore, MemoryStore, SharedStore};
 pub use sync::Server;
 
 #[cfg(feature = "async")]

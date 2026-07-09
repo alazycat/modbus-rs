@@ -20,8 +20,7 @@ pub enum ConfigError {
 }
 
 impl core::fmt::Display for ConfigError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>,
-    ) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Parse(msg) => write!(f, "config parse error: {msg}"),
             Self::InvalidValue(msg) => write!(f, "config invalid value: {msg}"),
@@ -86,8 +85,10 @@ impl ClientConfigFile {
     /// Convert this file configuration into the runtime client config and retry
     /// policy.
     #[cfg(any(feature = "sync", feature = "async"))]
-    pub fn into_parts(self) -> Result<(crate::client::ClientConfig, crate::client::RetryPolicy), ConfigError> {
-        use crate::client::{ClientConfig, RetryPolicy, default_retryable};
+    pub fn into_parts(
+        self,
+    ) -> Result<(crate::client::ClientConfig, crate::client::RetryPolicy), ConfigError> {
+        use crate::client::{default_retryable, ClientConfig, RetryPolicy};
 
         #[cfg(feature = "helpers")]
         use crate::helpers::{Endian, WordOrder};
@@ -334,7 +335,10 @@ retry_policy:
         let file: ServerConfigFile = server_from_json(text).unwrap();
         assert_eq!(file.bind_address, "0.0.0.0:1502");
         assert_eq!(file.transport, ServerTransport::RtuOverTcp);
-        assert_eq!(file.store_path.as_deref(), Some("/var/lib/modbus/store.json"));
+        assert_eq!(
+            file.store_path.as_deref(),
+            Some("/var/lib/modbus/store.json")
+        );
     }
 
     #[test]
@@ -360,7 +364,10 @@ store_path: /var/lib/modbus/store.json
         let file: ServerConfigFile = server_from_yaml(text).unwrap();
         assert_eq!(file.bind_address, "0.0.0.0:1502");
         assert_eq!(file.transport, ServerTransport::Serial);
-        assert_eq!(file.store_path.as_deref(), Some("/var/lib/modbus/store.json"));
+        assert_eq!(
+            file.store_path.as_deref(),
+            Some("/var/lib/modbus/store.json")
+        );
     }
 
     #[test]

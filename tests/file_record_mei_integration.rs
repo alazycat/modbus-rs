@@ -13,11 +13,7 @@ fn file_record_mei_store() -> MemoryStore {
     store
 }
 
-fn assert_file_record_mei_results(
-    read: Vec<u8>,
-    written: Vec<u8>,
-    mei: (u8, Vec<u8>),
-) {
+fn assert_file_record_mei_results(read: Vec<u8>, written: Vec<u8>, mei: (u8, Vec<u8>)) {
     assert_eq!(read, vec![0x0D, 0xFE], "read file record mismatch");
     assert_eq!(
         written,
@@ -43,17 +39,21 @@ mod sync_rtu {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         let addr = listener.local_addr()?;
 
-        let server_handle = thread::spawn(move || -> Result<(), modbus::rtu_server::RtuServerError> {
-            let (mut stream, _) = listener.accept()?;
-            let mut server = RtuServer::new(file_record_mei_store());
-            server.serve(&mut stream, UNIT_ID)
-        });
+        let server_handle =
+            thread::spawn(move || -> Result<(), modbus::rtu_server::RtuServerError> {
+                let (mut stream, _) = listener.accept()?;
+                let mut server = RtuServer::new(file_record_mei_store());
+                server.serve(&mut stream, UNIT_ID)
+            });
 
         let stream = TcpStream::connect(addr)?;
         let mut client = Client::new(RtuTransport::new(stream));
 
         let read = client
-            .read_file_record(UNIT_ID, &[ReadFileRecordSubRequest::new(0x0001, 0x0001, 0x0001)])?
+            .read_file_record(
+                UNIT_ID,
+                &[ReadFileRecordSubRequest::new(0x0001, 0x0001, 0x0001)],
+            )?
             .pop()
             .unwrap()
             .data;
@@ -95,17 +95,21 @@ mod sync_tcp {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         let addr = listener.local_addr()?;
 
-        let server_handle = thread::spawn(move || -> Result<(), modbus::tcp_server::TcpServerError> {
-            let (mut stream, _) = listener.accept()?;
-            let mut server = TcpServer::new(file_record_mei_store());
-            server.serve(&mut stream, UNIT_ID)
-        });
+        let server_handle =
+            thread::spawn(move || -> Result<(), modbus::tcp_server::TcpServerError> {
+                let (mut stream, _) = listener.accept()?;
+                let mut server = TcpServer::new(file_record_mei_store());
+                server.serve(&mut stream, UNIT_ID)
+            });
 
         let stream = TcpStream::connect(addr)?;
         let mut client = TcpClient::new(TcpTransport::new(stream));
 
         let read = client
-            .read_file_record(UNIT_ID, &[ReadFileRecordSubRequest::new(0x0001, 0x0001, 0x0001)])?
+            .read_file_record(
+                UNIT_ID,
+                &[ReadFileRecordSubRequest::new(0x0001, 0x0001, 0x0001)],
+            )?
             .pop()
             .unwrap()
             .data;
@@ -147,19 +151,23 @@ mod sync_udp {
         let server_socket = UdpSocket::bind("127.0.0.1:0")?;
         let server_addr = server_socket.local_addr()?;
 
-        let server_handle = thread::spawn(move || -> Result<(), modbus::udp_server::UdpServerError> {
-            let mut server = UdpServer::new(file_record_mei_store());
-            for _ in 0..3 {
-                server.serve_one(&server_socket, UNIT_ID)?;
-            }
-            Ok(())
-        });
+        let server_handle =
+            thread::spawn(move || -> Result<(), modbus::udp_server::UdpServerError> {
+                let mut server = UdpServer::new(file_record_mei_store());
+                for _ in 0..3 {
+                    server.serve_one(&server_socket, UNIT_ID)?;
+                }
+                Ok(())
+            });
 
         let client_socket = UdpSocket::bind("127.0.0.1:0")?;
         let mut client = UdpClient::new(UdpTransport::new(client_socket, server_addr));
 
         let read = client
-            .read_file_record(UNIT_ID, &[ReadFileRecordSubRequest::new(0x0001, 0x0001, 0x0001)])?
+            .read_file_record(
+                UNIT_ID,
+                &[ReadFileRecordSubRequest::new(0x0001, 0x0001, 0x0001)],
+            )?
             .pop()
             .unwrap()
             .data;
@@ -212,7 +220,10 @@ mod sync_ascii {
         let mut client = AsciiClient::new(AsciiTransport::new(stream));
 
         let read = client
-            .read_file_record(UNIT_ID, &[ReadFileRecordSubRequest::new(0x0001, 0x0001, 0x0001)])?
+            .read_file_record(
+                UNIT_ID,
+                &[ReadFileRecordSubRequest::new(0x0001, 0x0001, 0x0001)],
+            )?
             .pop()
             .unwrap()
             .data;
@@ -261,7 +272,10 @@ mod async_rtu {
         let mut client = AsyncClient::new(AsyncRtuTransport::new(stream));
 
         let read = client
-            .read_file_record(UNIT_ID, &[ReadFileRecordSubRequest::new(0x0001, 0x0001, 0x0001)])
+            .read_file_record(
+                UNIT_ID,
+                &[ReadFileRecordSubRequest::new(0x0001, 0x0001, 0x0001)],
+            )
             .await?
             .pop()
             .unwrap()
@@ -314,7 +328,10 @@ mod async_tcp {
         let mut client = AsyncTcpClient::new(AsyncTcpTransport::new(stream));
 
         let read = client
-            .read_file_record(UNIT_ID, &[ReadFileRecordSubRequest::new(0x0001, 0x0001, 0x0001)])
+            .read_file_record(
+                UNIT_ID,
+                &[ReadFileRecordSubRequest::new(0x0001, 0x0001, 0x0001)],
+            )
             .await?
             .pop()
             .unwrap()
@@ -369,7 +386,10 @@ mod async_udp {
         let mut client = AsyncUdpClient::new(AsyncUdpTransport::new(client_socket, server_addr));
 
         let read = client
-            .read_file_record(UNIT_ID, &[ReadFileRecordSubRequest::new(0x0001, 0x0001, 0x0001)])
+            .read_file_record(
+                UNIT_ID,
+                &[ReadFileRecordSubRequest::new(0x0001, 0x0001, 0x0001)],
+            )
             .await?
             .pop()
             .unwrap()
@@ -421,7 +441,10 @@ mod async_ascii {
         let mut client = AsyncAsciiClient::new(AsyncAsciiTransport::new(stream));
 
         let read = client
-            .read_file_record(UNIT_ID, &[ReadFileRecordSubRequest::new(0x0001, 0x0001, 0x0001)])
+            .read_file_record(
+                UNIT_ID,
+                &[ReadFileRecordSubRequest::new(0x0001, 0x0001, 0x0001)],
+            )
             .await?
             .pop()
             .unwrap()

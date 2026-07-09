@@ -93,15 +93,12 @@ impl
         tls_config: rustls::ClientConfig,
         config: TcpClientConfig,
     ) -> Result<Self, crate::client::ClientError> {
-        let stream = std::net::TcpStream::connect(addr)
-            .map_err(crate::transport::TransportError::Io)?;
+        let stream =
+            std::net::TcpStream::connect(addr).map_err(crate::transport::TransportError::Io)?;
         let server_name = rustls::pki_types::ServerName::try_from(server_name.to_owned())
             .map_err(|e| crate::client::ClientError::Tls(e.to_string()))?;
-        let conn = rustls::ClientConnection::new(
-            std::sync::Arc::new(tls_config),
-            server_name,
-        )
-        .map_err(|e| crate::client::ClientError::Tls(e.to_string()))?;
+        let conn = rustls::ClientConnection::new(std::sync::Arc::new(tls_config), server_name)
+            .map_err(|e| crate::client::ClientError::Tls(e.to_string()))?;
         let tls = rustls::StreamOwned::new(conn, stream);
         let transport = crate::tcp_transport::TcpTransport::new(tls);
         Ok(Self::with_config(transport, config))
@@ -289,11 +286,11 @@ mod tls_tests {
 
     #[test]
     fn connect_tls_reads_coils_sync() {
+        use super::TcpClient;
         use std::io::{Read, Write};
         use std::net::TcpListener;
         use std::sync::Arc;
         use std::thread;
-        use super::TcpClient;
 
         let _ = rustls::crypto::ring::default_provider().install_default();
 
@@ -331,7 +328,9 @@ mod tls_tests {
             .with_root_certificates(root_store)
             .with_no_client_auth();
 
-        let mut client = TcpClient::connect_tls(addr, "localhost", client_config, TcpClientConfig::default()).unwrap();
+        let mut client =
+            TcpClient::connect_tls(addr, "localhost", client_config, TcpClientConfig::default())
+                .unwrap();
         let coils = client.read_coils(0x0A, 0, 8).unwrap();
         assert_eq!(coils, vec![0b00001101]);
     }
@@ -385,12 +384,12 @@ mod tls_tests {
 
     #[test]
     fn tls_server_accepts_sync_client() {
+        use super::TcpClient;
+        use crate::server::{DataStore, MemoryStore};
+        use crate::tcp_server::TcpServer;
         use std::net::TcpListener;
         use std::sync::Arc;
         use std::thread;
-        use crate::server::{DataStore, MemoryStore};
-        use crate::tcp_server::TcpServer;
-        use super::TcpClient;
 
         let _ = rustls::crypto::ring::default_provider().install_default();
 
@@ -409,7 +408,9 @@ mod tls_tests {
 
         thread::spawn(move || {
             let mut server = TcpServer::new(store);
-            server.serve_tls(listener, 0x0A, Arc::new(server_config)).unwrap();
+            server
+                .serve_tls(listener, 0x0A, Arc::new(server_config))
+                .unwrap();
         });
 
         let mut root_store = rustls::RootCertStore::empty();
@@ -418,18 +419,20 @@ mod tls_tests {
             .with_root_certificates(root_store)
             .with_no_client_auth();
 
-        let mut client = TcpClient::connect_tls(addr, "localhost", client_config, TcpClientConfig::default()).unwrap();
+        let mut client =
+            TcpClient::connect_tls(addr, "localhost", client_config, TcpClientConfig::default())
+                .unwrap();
         let coils = client.read_coils(0x0A, 0, 8).unwrap();
         assert_eq!(coils, vec![0b00001101]);
     }
 
     #[tokio::test]
     async fn tls_server_accepts_async_client() {
-        use std::sync::Arc;
-        use tokio::net::TcpListener;
+        use super::AsyncTcpClient;
         use crate::server::{DataStore, MemoryStore};
         use crate::tcp_server::AsyncTcpServer;
-        use super::AsyncTcpClient;
+        use std::sync::Arc;
+        use tokio::net::TcpListener;
 
         let _ = tokio_rustls::rustls::crypto::ring::default_provider().install_default();
 
@@ -448,7 +451,10 @@ mod tls_tests {
 
         tokio::spawn(async move {
             let mut server = AsyncTcpServer::new(store);
-            server.serve_tls(listener, 0x0A, Arc::new(server_config)).await.unwrap();
+            server
+                .serve_tls(listener, 0x0A, Arc::new(server_config))
+                .await
+                .unwrap();
         });
 
         let mut root_store = tokio_rustls::rustls::RootCertStore::empty();

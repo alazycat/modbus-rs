@@ -95,8 +95,7 @@ impl ExceptionResponse {
             return Err(DecodeError::InvalidValue);
         }
         let function_code = raw_function_code & !Self::EXCEPTION_FLAG;
-        let exception_code =
-            ExceptionCode::from_u8(buf[1]).ok_or(DecodeError::InvalidValue)?;
+        let exception_code = ExceptionCode::from_u8(buf[1]).ok_or(DecodeError::InvalidValue)?;
         Ok(Self {
             function_code,
             exception_code,

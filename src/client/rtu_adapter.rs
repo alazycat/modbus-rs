@@ -100,8 +100,8 @@ mod tests {
         #[test]
         fn metrics_count_request_and_response() {
             use super::super::RtuAduAdapter;
-            use alloc::sync::Arc;
             use crate::metrics::Metrics;
+            use alloc::sync::Arc;
 
             let response_pdu = vec![0x01, 0x01, 0b00001101];
             let mut transport = MockTransport::new();

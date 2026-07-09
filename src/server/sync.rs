@@ -25,8 +25,8 @@ use crate::function_codes::read_discrete_inputs::{
 use crate::function_codes::read_exception_status::{
     ReadExceptionStatusRequest, ReadExceptionStatusResponse,
 };
-use crate::function_codes::read_file_record::{ReadFileRecordRequest, ReadFileRecordResponse};
 use crate::function_codes::read_fifo_queue::{ReadFifoQueueRequest, ReadFifoQueueResponse};
+use crate::function_codes::read_file_record::{ReadFileRecordRequest, ReadFileRecordResponse};
 use crate::function_codes::read_holding_registers::{
     ReadHoldingRegistersRequest, ReadHoldingRegistersResponse,
 };
@@ -248,10 +248,7 @@ impl<D: DataStore> Server<D> {
             DiagnosticsRequest::FUNCTION_CODE => {
                 let req = decode_request::<DiagnosticsRequest>(request)?;
                 let (sub_function, data) = self.store.diagnostics(req.sub_function, req.data)?;
-                encode_pdu(DiagnosticsResponse {
-                    sub_function,
-                    data,
-                })
+                encode_pdu(DiagnosticsResponse { sub_function, data })
             }
             GetCommEventCounterRequest::FUNCTION_CODE => {
                 let _req = decode_request::<GetCommEventCounterRequest>(request)?;
@@ -277,7 +274,8 @@ impl<D: DataStore> Server<D> {
             }
             ReadFifoQueueRequest::FUNCTION_CODE => {
                 let req = decode_request::<ReadFifoQueueRequest>(request)?;
-                let (fifo_count, register_values) = self.store.read_fifo_queue(req.fifo_pointer_address)?;
+                let (fifo_count, register_values) =
+                    self.store.read_fifo_queue(req.fifo_pointer_address)?;
                 encode_pdu(ReadFifoQueueResponse {
                     fifo_count,
                     register_values,
@@ -514,12 +512,15 @@ mod tests {
     #[cfg(feature = "metrics")]
     #[test]
     fn metrics_count_request_and_response() {
-        use alloc::sync::Arc;
         use crate::metrics::Metrics;
+        use alloc::sync::Arc;
 
         let metrics = Arc::new(Metrics::new());
         let mut server = Server::with_metrics(MemoryStore::new(16, 0, 0, 0), Arc::clone(&metrics));
-        server.store_mut().write_coils(0, &[true, false, true, true]).unwrap();
+        server
+            .store_mut()
+            .write_coils(0, &[true, false, true, true])
+            .unwrap();
 
         let req = ReadCoilsRequest::new(0, 8).unwrap();
         let mut request = [0u8; 5];

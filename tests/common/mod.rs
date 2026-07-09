@@ -12,7 +12,9 @@ use modbus::server::MemoryStore;
 /// register-access integration scenario.
 pub fn register_store() -> MemoryStore {
     let mut store = MemoryStore::new(8, 0, 4, 4);
-    store.write_input_registers(0, &[0xAABB, 0xCCDD, 0xEEFF]).unwrap();
+    store
+        .write_input_registers(0, &[0xAABB, 0xCCDD, 0xEEFF])
+        .unwrap();
     store
 }
 

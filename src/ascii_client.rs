@@ -93,8 +93,9 @@ impl
         baud_rate: u32,
         config: AsciiClientConfig,
     ) -> Result<Self, AsciiClientError> {
-        let serial = crate::serial_transport::open_serial_port(path, baud_rate)
-            .map_err(|e| AsciiClientError::Transport(crate::transport::TransportError::Io(e.into())))?;
+        let serial = crate::serial_transport::open_serial_port(path, baud_rate).map_err(|e| {
+            AsciiClientError::Transport(crate::transport::TransportError::Io(e.into()))
+        })?;
         let transport = crate::ascii_transport::AsciiTransport::new(serial);
         Ok(Self::with_config(transport, config))
     }

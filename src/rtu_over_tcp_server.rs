@@ -5,7 +5,11 @@
 //! framer around a TCP stream so that requests and responses can be served
 //! over a plain TCP connection, commonly used with serial-to-Ethernet gateways.
 
-#![cfg(all(feature = "rtu", feature = "tcp", any(feature = "sync", feature = "async")))]
+#![cfg(all(
+    feature = "rtu",
+    feature = "tcp",
+    any(feature = "sync", feature = "async")
+))]
 
 use crate::server::{DataStore, Server};
 

@@ -619,10 +619,7 @@ mod async_tests {
         let mut server = AsyncAsciiServer::new(store);
 
         let (mut client, mut server_stream) = tokio::io::duplex(1024);
-        client
-            .write_all(b":010300000001FA\r\n")
-            .await
-            .unwrap();
+        client.write_all(b":010300000001FA\r\n").await.unwrap();
         client.shutdown().await.unwrap();
 
         let err = server

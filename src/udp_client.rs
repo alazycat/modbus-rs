@@ -118,11 +118,7 @@ mod tests {
             Ok(())
         }
 
-        fn recv(
-            &mut self,
-            buf: &mut [u8],
-            _timeout: Duration,
-        ) -> Result<usize, TransportError> {
+        fn recv(&mut self, buf: &mut [u8], _timeout: Duration) -> Result<usize, TransportError> {
             let data = self.pending.take().ok_or(TransportError::Disconnected)?;
             if buf.len() < data.len() {
                 return Err(TransportError::Disconnected);
@@ -136,7 +132,10 @@ mod tests {
     fn read_coils_over_udp() {
         let store = MemoryStore::new(16, 0, 0, 0);
         let mut server = Server::new(store);
-        server.store_mut().write_coils(0, &[true, false, true, true]).unwrap();
+        server
+            .store_mut()
+            .write_coils(0, &[true, false, true, true])
+            .unwrap();
 
         let mut client = UdpClient::new(LoopbackTransport::new(server));
         let coils = client.read_coils(0x0A, 0, 8).unwrap();
@@ -158,7 +157,10 @@ mod tests {
     fn transaction_id_increments() {
         let store = MemoryStore::new(16, 0, 0, 0);
         let mut server = Server::new(store);
-        server.store_mut().write_coils(0, &[true, true, true, true]).unwrap();
+        server
+            .store_mut()
+            .write_coils(0, &[true, true, true, true])
+            .unwrap();
 
         let mut client = UdpClient::new(LoopbackTransport::new(server));
         let _ = client.read_coils(0x01, 0, 8).unwrap();

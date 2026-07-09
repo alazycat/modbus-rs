@@ -32,10 +32,7 @@ impl DiagnosticsRequest {
 
     /// Create a new request.
     pub fn new(sub_function: u16, data: u16) -> Self {
-        Self {
-            sub_function,
-            data,
-        }
+        Self { sub_function, data }
     }
 
     /// Encode the request into `buf` and return the number of bytes written.
@@ -94,10 +91,7 @@ impl DiagnosticsResponse {
         }
         let sub_function = u16::from_be_bytes([buf[1], buf[2]]);
         let data = u16::from_be_bytes([buf[3], buf[4]]);
-        Ok(Self {
-            sub_function,
-            data,
-        })
+        Ok(Self { sub_function, data })
     }
 }
 

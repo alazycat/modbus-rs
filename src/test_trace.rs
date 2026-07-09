@@ -69,12 +69,23 @@ pub mod test_trace {
     where
         F: FnOnce() -> R,
     {
+        use std::sync::Once;
         use tracing_subscriber::filter::LevelFilter;
         use tracing_subscriber::layer::SubscriberExt;
+
+        static INIT_GLOBAL: Once = Once::new();
+        INIT_GLOBAL.call_once(|| {
+            use tracing_subscriber::util::SubscriberInitExt;
+            let _ = tracing_subscriber::registry()
+                .with(LevelFilter::TRACE)
+                .try_init();
+        });
+
         let subscriber = tracing_subscriber::registry()
             .with(recorder.clone())
             .with(LevelFilter::TRACE);
         let _guard = tracing::subscriber::set_default(subscriber);
+        tracing::callsite::rebuild_interest_cache();
         f()
     }
 }

@@ -99,13 +99,26 @@ fn read_all<T: Read>(stream: &mut T, buf: &mut [u8]) -> Result<(), TransportErro
 #[derive(Debug)]
 pub struct AsyncTcpTransport<T> {
     stream: T,
+    idle_timeout: Option<Duration>,
 }
 
 #[cfg(feature = "async")]
 impl<T> AsyncTcpTransport<T> {
     /// Create a new async TCP transport around `stream`.
     pub fn new(stream: T) -> Self {
-        Self { stream }
+        Self {
+            stream,
+            idle_timeout: None,
+        }
+    }
+
+    /// Set the maximum time a read may remain idle before returning a timeout.
+    ///
+    /// This is applied per read call within [`AsyncTransport::recv`]. When
+    /// `None`, only the per-call `timeout` passed to `recv` is enforced.
+    pub fn with_idle_timeout(mut self, idle_timeout: Option<Duration>) -> Self {
+        self.idle_timeout = idle_timeout;
+        self
     }
 
     /// Return the underlying stream.
@@ -136,7 +149,12 @@ impl<T: AsyncReadExt + AsyncWriteExt + Unpin + Send> AsyncTransport for AsyncTcp
 
     async fn recv(&mut self, buf: &mut [u8], timeout: Duration) -> Result<usize, TransportError> {
         let mut header = [0u8; TcpAdu::HEADER_SIZE];
-        read_all_async(&mut self.stream, &mut header, timeout).await?;
+        read_all_async(&mut self.stream,
+            &mut header,
+            timeout,
+            self.idle_timeout,
+        )
+        .await?;
 
         let frame_len = tcp_frame_len(&header)?;
         if buf.len() < frame_len {
@@ -148,6 +166,7 @@ impl<T: AsyncReadExt + AsyncWriteExt + Unpin + Send> AsyncTransport for AsyncTcp
             &mut self.stream,
             &mut buf[TcpAdu::HEADER_SIZE..frame_len],
             timeout,
+            self.idle_timeout,
         )
         .await?;
         Ok(frame_len)
@@ -159,14 +178,29 @@ async fn read_all_async<T: AsyncReadExt + Unpin>(
     stream: &mut T,
     buf: &mut [u8],
     timeout: Duration,
+    idle_timeout: Option<Duration>,
 ) -> Result<(), TransportError> {
     let mut pos = 0;
     while pos < buf.len() {
-        match tokio::time::timeout(timeout, stream.read(&mut buf[pos..])).await {
-            Ok(Ok(0)) => return Err(TransportError::Disconnected),
-            Ok(Ok(n)) => pos += n,
-            Ok(Err(e)) => return Err(TransportError::Io(e)),
-            Err(_) => return Err(TransportError::Timeout),
+        let read_fut = stream.read(&mut buf[pos..]);
+        let read_result = match idle_timeout {
+            Some(idle) => {
+                match tokio::time::timeout(timeout, tokio::time::timeout(idle, read_fut)).await {
+                    Ok(Ok(Ok(n))) => Ok(n),
+                    Ok(Ok(Err(e))) => Err(TransportError::Io(e)),
+                    Ok(Err(_)) | Err(_) => Err(TransportError::Timeout),
+                }
+            }
+            None => match tokio::time::timeout(timeout, read_fut).await {
+                Ok(Ok(n)) => Ok(n),
+                Ok(Err(e)) => Err(TransportError::Io(e)),
+                Err(_) => Err(TransportError::Timeout),
+            },
+        };
+        match read_result {
+            Ok(0) => return Err(TransportError::Disconnected),
+            Ok(n) => pos += n,
+            Err(e) => return Err(e),
         }
     }
     Ok(())

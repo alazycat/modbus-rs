@@ -116,13 +116,26 @@ impl<T: Read + Write> Transport for RtuTransport<T> {
 #[derive(Debug)]
 pub struct AsyncRtuTransport<T> {
     stream: T,
+    idle_timeout: Option<Duration>,
 }
 
 #[cfg(feature = "async")]
 impl<T> AsyncRtuTransport<T> {
     /// Create a new async RTU transport around `stream`.
     pub fn new(stream: T) -> Self {
-        Self { stream }
+        Self {
+            stream,
+            idle_timeout: None,
+        }
+    }
+
+    /// Set the maximum time a read may remain idle before returning a timeout.
+    ///
+    /// This is applied per read call within [`AsyncTransport::recv`]. When
+    /// `None`, only the per-call `timeout` passed to `recv` is enforced.
+    pub fn with_idle_timeout(mut self, idle_timeout: Option<Duration>) -> Self {
+        self.idle_timeout = idle_timeout;
+        self
     }
 
     /// Return the underlying stream.
@@ -158,14 +171,62 @@ impl<T: AsyncReadExt + AsyncWriteExt + Unpin + Send> AsyncTransport for AsyncRtu
         let deadline = tokio::time::Instant::now() + timeout;
 
         loop {
-            match tokio::time::timeout_at(deadline, self.stream.read(&mut byte)).await {
-                Ok(Ok(0)) => {
+            let read_fut = self.stream.read(&mut byte);
+            let read_result = match self.idle_timeout {
+                Some(idle) => {
+                    match tokio::time::timeout_at(deadline, tokio::time::timeout(idle, read_fut))
+                        .await
+                    {
+                        Ok(Ok(Ok(n))) => Ok(n),
+                        Ok(Ok(Err(e))) => {
+                            if e.kind() == std::io::ErrorKind::TimedOut
+                                || e.kind() == std::io::ErrorKind::WouldBlock
+                            {
+                                if frame.is_empty() {
+                                    return Err(TransportError::Timeout);
+                                }
+                                break;
+                            } else {
+                                Err(TransportError::Io(e))
+                            }
+                        }
+                        Ok(Err(_)) | Err(_) => {
+                            if frame.is_empty() {
+                                return Err(TransportError::Timeout);
+                            }
+                            break;
+                        }
+                    }
+                }
+                None => match tokio::time::timeout_at(deadline, read_fut).await {
+                    Ok(Ok(n)) => Ok(n),
+                    Ok(Err(e))
+                        if e.kind() == std::io::ErrorKind::TimedOut
+                            || e.kind() == std::io::ErrorKind::WouldBlock =>
+                    {
+                        if frame.is_empty() {
+                            return Err(TransportError::Timeout);
+                        }
+                        break;
+                    }
+                    Ok(Err(e)) => Err(TransportError::Io(e)),
+                    Err(_) => {
+                        if frame.is_empty() {
+                            return Err(TransportError::Timeout);
+                        }
+                        break;
+                    }
+                },
+            };
+
+            match read_result {
+                Ok(0) => {
                     if frame.is_empty() {
                         return Err(TransportError::Disconnected);
                     }
                     break;
                 }
-                Ok(Ok(1)) => {
+                Ok(1) => {
                     frame.push(byte[0]);
                     match rtu_frame_len(&frame) {
                         Ok(_) => break,
@@ -175,24 +236,8 @@ impl<T: AsyncReadExt + AsyncWriteExt + Unpin + Send> AsyncTransport for AsyncRtu
                         Err(RtuFrameError::NeedMore) => {}
                     }
                 }
-                Ok(Ok(_)) => unreachable!("single-byte read returned more than one byte"),
-                Ok(Err(e)) => {
-                    if e.kind() == std::io::ErrorKind::TimedOut
-                        || e.kind() == std::io::ErrorKind::WouldBlock
-                    {
-                        if frame.is_empty() {
-                            return Err(TransportError::Timeout);
-                        }
-                        break;
-                    }
-                    return Err(TransportError::Io(e));
-                }
-                Err(_) => {
-                    if frame.is_empty() {
-                        return Err(TransportError::Timeout);
-                    }
-                    break;
-                }
+                Ok(_) => unreachable!("single-byte read returned more than one byte"),
+                Err(e) => return Err(e),
             }
         }
 

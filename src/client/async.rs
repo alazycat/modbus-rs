@@ -146,7 +146,8 @@ impl AsyncClient<crate::rtu_transport::AsyncRtuTransport<tokio::net::TcpStream>>
         let stream = tokio::net::TcpStream::connect(addr)
             .await
             .map_err(crate::transport::TransportError::Io)?;
-        let transport = crate::rtu_transport::AsyncRtuTransport::new(stream);
+        let transport = crate::rtu_transport::AsyncRtuTransport::new(stream)
+            .with_idle_timeout(config.idle_timeout);
         Ok(Self::with_config(transport, config))
     }
 }

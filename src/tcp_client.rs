@@ -658,7 +658,8 @@ impl
             .connect(server_name, stream)
             .await
             .map_err(|e| crate::client::ClientError::Tls(e.to_string()))?;
-        let transport = crate::tcp_transport::AsyncTcpTransport::new(tls);
+        let transport = crate::tcp_transport::AsyncTcpTransport::new(tls)
+            .with_idle_timeout(config.idle_timeout);
         Ok(Self::with_config(transport, config))
     }
 }
@@ -814,5 +815,47 @@ mod async_tests {
                 .unwrap();
         let coils = client.read_coils(0x0A, 0, 8).await.unwrap();
         assert_eq!(coils, vec![0b00001101]);
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "rtu")]
+    async fn rtu_over_tcp_idle_timeout_async() {
+        use crate::client::ClientError;
+        use tokio::io::AsyncReadExt;
+        use tokio::net::TcpListener;
+        use tokio::time::{Duration, Instant};
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            // Accept the connection but never respond.
+            let mut buf = [0u8; 256];
+            let _ = stream.read(&mut buf).await;
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        });
+
+        let mut config = TcpClientConfig::default();
+        config.timeout = Duration::from_millis(300);
+        config.idle_timeout = Some(Duration::from_millis(50));
+        let mut client = crate::client::AsyncClient::connect_rtu_over_tcp(addr, config)
+            .await
+            .unwrap();
+
+        let start = Instant::now();
+        let result = tokio::time::timeout(Duration::from_millis(200), client.read_coils(0x0A, 0, 8))
+            .await;
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < Duration::from_millis(150),
+            "took too long to trigger idle timeout: {:?}",
+            elapsed
+        );
+        match result {
+            Ok(Err(ClientError::Timeout)) => {}
+            Ok(other) => panic!("expected idle timeout, got {other:?}"),
+            Err(_) => panic!("client did not return within idle-timeout window"),
+        }
     }
 }

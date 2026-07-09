@@ -378,6 +378,12 @@ macro_rules! impl_adu_adapter {
                 let n = adu.encode(&mut tx).map_err($crate::client::ClientError::Encode)?;
                 self.transport.send(&tx[..n]) $($await)* ?;
 
+                // Broadcast requests (unit_id == 0) are sent to all devices and
+                // do not produce a response, so skip the receive path.
+                if unit_id == 0 {
+                    return Ok(Vec::new());
+                }
+
                 let mut rx = [0u8; 512];
                 let m = self.transport.recv(&mut rx, self.config.timeout) $($await)* ?;
                 if m == 0 {

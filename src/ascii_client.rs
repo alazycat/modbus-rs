@@ -104,6 +104,7 @@ impl
 mod tests {
     use super::*;
     use crate::ascii::AsciiAdu;
+    use crate::client::AduAdapter;
     use crate::server::{DataStore, MemoryStore, Server};
     use crate::transport::{Transport, TransportError};
     use crate::{ExceptionResponse, ReadCoilsRequest, ReadCoilsResponse};
@@ -226,6 +227,29 @@ mod tests {
         assert!(matches!(err, AsciiClientError::InvalidResponse));
     }
 
+    #[test]
+    fn broadcast_skips_recv_and_returns_empty_pdu() {
+        use super::AsciiAduAdapter;
+
+        let request_pdu = {
+            let req = ReadCoilsRequest::new(0, 8).unwrap();
+            let mut buf = [0u8; 5];
+            let n = req.encode(&mut buf).unwrap();
+            buf[..n].to_vec()
+        };
+
+        let mut adapter =
+            AsciiAduAdapter::with_config(MockTransport::new(vec![]), AsciiClientConfig::default());
+        let response = adapter.send_receive(0, &request_pdu).unwrap();
+
+        assert!(response.is_empty());
+        assert_eq!(adapter.transport.sent.len(), 1);
+
+        let sent = AsciiAdu::decode(&adapter.transport.sent[0]).unwrap();
+        assert_eq!(sent.address, 0);
+        assert_eq!(sent.pdu, request_pdu);
+    }
+
     struct MockTransport {
         sent: Vec<Vec<u8>>,
         responses: alloc::collections::VecDeque<Vec<u8>>,
@@ -308,6 +332,7 @@ impl<T: AsyncTransport> DerefMut for AsyncAsciiClient<T> {
 mod async_tests {
     use super::*;
     use crate::ascii::AsciiAdu;
+    use crate::client::AsyncAduAdapter;
     use crate::server::{DataStore, MemoryStore, Server};
     use crate::transport::{AsyncTransport, TransportError};
     use crate::{ExceptionResponse, ReadCoilsRequest, ReadCoilsResponse};
@@ -434,6 +459,31 @@ mod async_tests {
             .await
             .unwrap_err();
         assert!(matches!(err, AsciiClientError::InvalidResponse));
+    }
+
+    #[tokio::test]
+    async fn broadcast_skips_recv_and_returns_empty_pdu() {
+        use super::AsyncAsciiAduAdapter;
+
+        let request_pdu = {
+            let req = ReadCoilsRequest::new(0, 8).unwrap();
+            let mut buf = [0u8; 5];
+            let n = req.encode(&mut buf).unwrap();
+            buf[..n].to_vec()
+        };
+
+        let mut adapter = AsyncAsciiAduAdapter::with_config(
+            MockAsyncTransport::new(vec![]),
+            AsciiClientConfig::default(),
+        );
+        let response = adapter.send_receive(0, &request_pdu).await.unwrap();
+
+        assert!(response.is_empty());
+        assert_eq!(adapter.transport.sent.len(), 1);
+
+        let sent = AsciiAdu::decode(&adapter.transport.sent[0]).unwrap();
+        assert_eq!(sent.address, 0);
+        assert_eq!(sent.pdu, request_pdu);
     }
 
     struct MockAsyncTransport {

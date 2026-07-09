@@ -267,14 +267,14 @@ include transport type, function code, and unit ID where available. Keep all
 instrumentation behind `cfg(feature = "tracing")`.
 
 **Acceptance criteria:**
-- [ ] TCP, RTU, ASCII, UDP, serial, TLS, and RTU-over-TCP transports emit
+- [x] TCP, RTU, ASCII, UDP, serial, TLS, and RTU-over-TCP transports emit
       send/recv trace events.
-- [ ] Sync and async servers emit dispatch spans.
-- [ ] No tracing code compiled when the feature is disabled.
+- [x] Sync and async servers emit dispatch spans.
+- [x] No tracing code compiled when the feature is disabled.
 
 **Verification:**
-- [ ] `cargo test --all-features` passes.
-- [ ] `cargo test --features sync,tcp` passes.
+- [x] `cargo test --all-features` passes.
+- [x] `cargo test --features sync,tcp` passes.
 
 **Dependencies:** None
 

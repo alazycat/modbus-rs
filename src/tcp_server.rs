@@ -112,12 +112,37 @@ impl<D: DataStore> TcpServer<D> {
     ) -> Result<Option<usize>, TcpServerError> {
         let request = self.read_adu(stream)?;
 
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            protocol = "tcp",
+            unit_id,
+            transaction_id = request.transaction_id,
+            function_code = request.pdu.first().copied().unwrap_or(0),
+            "serving TCP request"
+        );
+
         if request.unit_id != unit_id {
+            #[cfg(feature = "tracing")]
+            tracing::trace!(
+                protocol = "tcp",
+                unit_id,
+                request_unit_id = request.unit_id,
+                "ignoring request for different unit ID"
+            );
             return Ok(None);
         }
 
         let mut pdu_response = [0u8; 512];
         let n = self.server.dispatch_with_hook(unit_id, &request.pdu, &mut pdu_response)?;
+
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            protocol = "tcp",
+            unit_id,
+            transaction_id = request.transaction_id,
+            response_len = n,
+            "wrote TCP response"
+        );
 
         let response = TcpAdu::new(
             request.transaction_id,
@@ -287,6 +312,42 @@ mod tests {
         assert_eq!(response.unit_id, 0x0A);
         assert_eq!(response.transaction_id, 0x0001);
         assert_eq!(response.pdu, vec![0x01, 0x01, 0b00001101]);
+    }
+
+    #[cfg(feature = "tracing")]
+    #[test]
+    fn serve_one_emits_trace_with_unit_id_and_function_code() {
+        use crate::test_trace::test_trace::{with_default, TraceRecorder};
+
+        let recorder = TraceRecorder::new();
+        with_default(&recorder, || {
+            let mut store = MemoryStore::new(16, 0, 0, 0);
+            store.write_coils(0, &[true, false, true, true]).unwrap();
+
+            let mut server = TcpServer::new(store);
+            let request = make_read_coils_adu(0x0A, 0x0001, 0, 8);
+            let mut stream = Duplex::new(request);
+            server.serve_one(&mut stream, 0x0A).unwrap().unwrap();
+        });
+
+        let events = recorder.events();
+        let serve_event = events
+            .iter()
+            .find(|e| e.fields.iter().any(|(k, v)| k == "message" && v == "serving TCP request"))
+            .expect("serving TCP request trace event should be emitted");
+        assert!(
+            serve_event.fields.iter().any(|(k, v)| k == "unit_id" && v == "10"),
+            "server trace should include unit_id: {:?}",
+            serve_event.fields
+        );
+        assert!(
+            serve_event
+                .fields
+                .iter()
+                .any(|(k, v)| k == "function_code" && v == "1"),
+            "server trace should include function_code: {:?}",
+            serve_event.fields
+        );
     }
 
     #[test]

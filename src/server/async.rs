@@ -104,25 +104,7 @@ impl<D: DataStore> AsyncServer<D> {
     where
         S: AsyncReadExt + AsyncWriteExt + Unpin,
     {
-        let request = self.read_adu(stream).await?;
-
-        if request.address != server_address && !request.is_broadcast() {
-            return Ok(None);
-        }
-
-        let mut pdu_response = [0u8; 512];
-        let n = self.server.dispatch(&request.pdu, &mut pdu_response)?;
-
-        if request.is_broadcast() {
-            return Ok(None);
-        }
-
-        let response = RtuAdu::new(request.address, pdu_response[..n].to_vec());
-        let mut tx = [0u8; 512];
-        let m = response.encode(&mut tx)?;
-        stream.write_all(&tx[..m]).await?;
-        stream.flush().await?;
-        Ok(Some(m))
+        serve_rtu_request(&mut self.server, stream, server_address).await
     }
 
     /// Continuously serve requests on `stream`.
@@ -144,56 +126,90 @@ impl<D: DataStore> AsyncServer<D> {
             }
         }
     }
+}
 
-    async fn read_adu<S>(&mut self, stream: &mut S) -> Result<RtuAdu, AsyncServerError>
-    where
-        S: AsyncReadExt + Unpin,
-    {
-        let mut frame = Vec::new();
-        let mut byte = [0u8; 1];
-        let mut eof = false;
+/// Serve a single RTU request/response exchange on `stream` using `server`.
+///
+/// Returns `Some(n)` if a response ADU of `n` bytes was written back, or `None`
+/// if the request was filtered out or was a broadcast.
+pub(crate) async fn serve_rtu_request<D, S>(
+    server: &mut Server<D>,
+    stream: &mut S,
+    server_address: u8,
+) -> Result<Option<usize>, AsyncServerError>
+where
+    D: DataStore,
+    S: AsyncReadExt + AsyncWriteExt + Unpin,
+{
+    let request = read_adu(stream).await?;
 
-        loop {
-            match stream.read(&mut byte).await {
-                Ok(0) => {
+    if request.address != server_address && !request.is_broadcast() {
+        return Ok(None);
+    }
+
+    let mut pdu_response = [0u8; 512];
+    let n = server.dispatch(&request.pdu, &mut pdu_response)?;
+
+    if request.is_broadcast() {
+        return Ok(None);
+    }
+
+    let response = RtuAdu::new(request.address, pdu_response[..n].to_vec());
+    let mut tx = [0u8; 512];
+    let m = response.encode(&mut tx)?;
+    stream.write_all(&tx[..m]).await?;
+    stream.flush().await?;
+    Ok(Some(m))
+}
+
+pub(crate) async fn read_adu<S>(stream: &mut S) -> Result<RtuAdu, AsyncServerError>
+where
+    S: AsyncReadExt + Unpin,
+{
+    let mut frame = Vec::new();
+    let mut byte = [0u8; 1];
+    let mut eof = false;
+
+    loop {
+        match stream.read(&mut byte).await {
+            Ok(0) => {
+                if frame.is_empty() {
+                    return Err(AsyncServerError::Disconnected);
+                }
+                eof = true;
+                break;
+            }
+            Ok(1) => {
+                frame.push(byte[0]);
+                if frame.len() > RtuAdu::MAX_FRAME_SIZE {
+                    return Err(AsyncServerError::Disconnected);
+                }
+                if frame.len() >= RtuAdu::MIN_FRAME_SIZE && RtuAdu::decode(&frame).is_ok() {
+                    break;
+                }
+            }
+            Ok(_) => unreachable!("single-byte read returned more than one byte"),
+            Err(e) => {
+                if e.kind() == io::ErrorKind::UnexpectedEof {
                     if frame.is_empty() {
                         return Err(AsyncServerError::Disconnected);
                     }
                     eof = true;
                     break;
                 }
-                Ok(1) => {
-                    frame.push(byte[0]);
-                    if frame.len() > RtuAdu::MAX_FRAME_SIZE {
-                        return Err(AsyncServerError::Disconnected);
-                    }
-                    if frame.len() >= RtuAdu::MIN_FRAME_SIZE && RtuAdu::decode(&frame).is_ok() {
-                        break;
-                    }
-                }
-                Ok(_) => unreachable!("single-byte read returned more than one byte"),
-                Err(e) => {
-                    if e.kind() == io::ErrorKind::UnexpectedEof {
-                        if frame.is_empty() {
-                            return Err(AsyncServerError::Disconnected);
-                        }
-                        eof = true;
-                        break;
-                    }
-                    return Err(AsyncServerError::Io(e));
-                }
+                return Err(AsyncServerError::Io(e));
             }
         }
-
-        let complete = frame.len() >= RtuAdu::MIN_FRAME_SIZE && RtuAdu::decode(&frame).is_ok();
-        RtuAdu::decode(&frame).map_err(|e| {
-            if eof && !complete {
-                AsyncServerError::Disconnected
-            } else {
-                AsyncServerError::Decode(e)
-            }
-        })
     }
+
+    let complete = frame.len() >= RtuAdu::MIN_FRAME_SIZE && RtuAdu::decode(&frame).is_ok();
+    RtuAdu::decode(&frame).map_err(|e| {
+        if eof && !complete {
+            AsyncServerError::Disconnected
+        } else {
+            AsyncServerError::Decode(e)
+        }
+    })
 }
 
 #[cfg(test)]

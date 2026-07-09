@@ -113,7 +113,24 @@ impl<D: DataStore> AsciiServer<D> {
     ) -> Result<Option<usize>, AsciiServerError> {
         let request = self.read_adu(stream)?;
 
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            protocol = "ascii",
+            server_address,
+            request_address = request.address,
+            function_code = request.pdu.first().copied().unwrap_or(0),
+            is_broadcast = request.is_broadcast(),
+            "serving ASCII request"
+        );
+
         if request.address != server_address && !request.is_broadcast() {
+            #[cfg(feature = "tracing")]
+            tracing::trace!(
+                protocol = "ascii",
+                server_address,
+                request_address = request.address,
+                "ignoring request for different server address"
+            );
             return Ok(None);
         }
 
@@ -121,8 +138,19 @@ impl<D: DataStore> AsciiServer<D> {
         let n = self.server.dispatch_with_hook(server_address, &request.pdu, &mut pdu_response)?;
 
         if request.is_broadcast() {
+            #[cfg(feature = "tracing")]
+            tracing::trace!(protocol = "ascii", server_address, "broadcast request, no response written");
             return Ok(None);
         }
+
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            protocol = "ascii",
+            server_address,
+            request_address = request.address,
+            response_len = n,
+            "wrote ASCII response"
+        );
 
         let response = AsciiAdu::new(request.address, pdu_response[..n].to_vec());
         let mut tx = [0u8; 513];
@@ -276,6 +304,45 @@ mod tests {
             .encode(&mut adu)
             .unwrap();
         adu[..m].to_vec()
+    }
+
+    #[cfg(feature = "tracing")]
+    #[test]
+    fn serve_one_emits_trace_with_server_address_and_function_code() {
+        use crate::test_trace::test_trace::{with_default, TraceRecorder};
+
+        let recorder = TraceRecorder::new();
+        with_default(&recorder, || {
+            let mut store = MemoryStore::new(16, 0, 0, 0);
+            store.write_coils(0, &[true, false, true, true]).unwrap();
+
+            let mut server = AsciiServer::new(store);
+            let request = make_read_coils_adu(0x03, 0, 8);
+            let mut stream = Duplex::new(request);
+            server.serve_one(&mut stream, 0x03).unwrap().unwrap();
+        });
+
+        let events = recorder.events();
+        let serve_event = events
+            .iter()
+            .find(|e| e.fields.iter().any(|(k, v)| k == "message" && v == "serving ASCII request"))
+            .expect("serving ASCII request trace event should be emitted");
+        assert!(
+            serve_event
+                .fields
+                .iter()
+                .any(|(k, v)| k == "server_address" && v == "3"),
+            "server trace should include server_address: {:?}",
+            serve_event.fields
+        );
+        assert!(
+            serve_event
+                .fields
+                .iter()
+                .any(|(k, v)| k == "function_code" && v == "1"),
+            "server trace should include function_code: {:?}",
+            serve_event.fields
+        );
     }
 
     #[test]

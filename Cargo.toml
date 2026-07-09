@@ -18,12 +18,17 @@ cli = ["std", "async", "tcp", "rtu", "serial", "dep:clap", "dep:tracing", "dep:t
 loopback-tests = ["rtu", "ascii", "serial"]
 tls = ["std", "tcp", "async", "dep:tokio-rustls", "dep:rustls"]
 sync-serial = ["std", "sync", "dep:serialport"]
+config = ["std", "dep:serde", "dep:serde_json", "dep:toml", "dep:serde_yaml"]
 
 [dependencies]
 tokio = { version = "1", features = ["net", "rt", "rt-multi-thread", "io-util", "time", "macros"], optional = true }
 tokio-rustls = { version = "0.26", optional = true, features = ["ring"] }
 rustls = { version = "0.23", optional = true, features = ["ring"] }
 tokio-serial = { version = "5", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+toml = { version = "0.8", optional = true }
+serde_yaml = { version = "0.9", optional = true }
 serialport = { version = "4", optional = true }
 clap = { version = "4", features = ["derive"], optional = true }
 tracing = { version = "0.1", optional = true }

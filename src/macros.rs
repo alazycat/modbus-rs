@@ -376,22 +376,30 @@ macro_rules! impl_adu_adapter {
                 let adu = <$adu>::new(unit_id, request_pdu.to_vec());
                 let mut tx = [0u8; 512];
                 let n = adu.encode(&mut tx).map_err($crate::client::ClientError::Encode)?;
+                #[cfg(feature = "tracing")]
+                tracing::trace!(unit_id, pdu_len = n, "sending ADU");
                 self.transport.send(&tx[..n]) $($await)* ?;
 
                 // Broadcast requests (unit_id == 0) are sent to all devices and
                 // do not produce a response, so skip the receive path.
                 if unit_id == 0 {
+                    #[cfg(feature = "tracing")]
+                    tracing::trace!(unit_id, "broadcast request, skipping receive");
                     return Ok(Vec::new());
                 }
 
                 let mut rx = [0u8; 512];
                 let m = self.transport.recv(&mut rx, self.config.timeout) $($await)* ?;
+                #[cfg(feature = "tracing")]
+                tracing::trace!(unit_id, response_len = m, "received ADU");
                 if m == 0 {
                     return Err($crate::client::ClientError::Transport(
                         $crate::transport::TransportError::Disconnected,
                     ));
                 }
                 let response = <$adu>::decode(&rx[..m]).map_err($crate::client::ClientError::Decode)?;
+                #[cfg(feature = "tracing")]
+                tracing::trace!(unit_id, response_address = response.address, "decoded response ADU");
                 if response.address != unit_id {
                     return Err($crate::client::ClientError::InvalidResponse);
                 }
@@ -441,16 +449,22 @@ macro_rules! impl_adu_adapter {
                 let adu = <$adu>::new(transaction_id, unit_id, request_pdu.to_vec());
                 let mut tx = [0u8; 512];
                 let n = adu.encode(&mut tx).map_err($crate::client::ClientError::Encode)?;
+                #[cfg(feature = "tracing")]
+                tracing::trace!(transaction_id, unit_id, pdu_len = n, "sending ADU");
                 self.transport.send(&tx[..n]) $($await)* ?;
 
                 let mut rx = [0u8; 512];
                 let m = self.transport.recv(&mut rx, self.config.timeout) $($await)* ?;
+                #[cfg(feature = "tracing")]
+                tracing::trace!(transaction_id, unit_id, response_len = m, "received ADU");
                 if m == 0 {
                     return Err($crate::client::ClientError::Transport(
                         $crate::transport::TransportError::Disconnected,
                     ));
                 }
                 let response = <$adu>::decode(&rx[..m]).map_err($crate::client::ClientError::Decode)?;
+                #[cfg(feature = "tracing")]
+                tracing::trace!(transaction_id, unit_id, response_transaction_id = response.transaction_id, "decoded response ADU");
                 if response.transaction_id != transaction_id {
                     return Err($crate::client::ClientError::InvalidResponse);
                 }

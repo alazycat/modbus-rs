@@ -142,8 +142,21 @@ where
     S: AsyncReadExt + AsyncWriteExt + Unpin,
 {
     let request = read_adu(stream).await?;
+    #[cfg(feature = "tracing")]
+    tracing::trace!(
+        server_address,
+        request_address = request.address,
+        is_broadcast = request.is_broadcast(),
+        "serving RTU request"
+    );
 
     if request.address != server_address && !request.is_broadcast() {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            server_address,
+            request_address = request.address,
+            "ignoring request for different server address"
+        );
         return Ok(None);
     }
 
@@ -151,6 +164,8 @@ where
     let n = server.dispatch(&request.pdu, &mut pdu_response)?;
 
     if request.is_broadcast() {
+        #[cfg(feature = "tracing")]
+        tracing::trace!("broadcast request, no response written");
         return Ok(None);
     }
 
@@ -159,6 +174,8 @@ where
     let m = response.encode(&mut tx)?;
     stream.write_all(&tx[..m]).await?;
     stream.flush().await?;
+    #[cfg(feature = "tracing")]
+    tracing::trace!(response_len = m, "wrote RTU response");
     Ok(Some(m))
 }
 

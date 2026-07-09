@@ -80,6 +80,8 @@ impl<D: DataStore> Server<D> {
     ///
     /// Returns the number of bytes written to `response`.
     pub fn dispatch(&mut self, request: &[u8], response: &mut [u8]) -> Result<usize, EncodeError> {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(request_len = request.len(), "dispatching request");
         if request.is_empty() {
             return encode_exception(0, ExceptionCode::IllegalFunction, response);
         }
@@ -87,13 +89,19 @@ impl<D: DataStore> Server<D> {
         let function_code = request[0];
         match self.process_request(function_code, request) {
             Ok(pdu) => {
+                #[cfg(feature = "tracing")]
+                tracing::trace!(function_code, response_len = pdu.len(), "request processed");
                 if response.len() < pdu.len() {
                     return Err(EncodeError::BufferTooSmall);
                 }
                 response[..pdu.len()].copy_from_slice(&pdu);
                 Ok(pdu.len())
             }
-            Err(code) => encode_exception(function_code, code, response),
+            Err(code) => {
+                #[cfg(feature = "tracing")]
+                tracing::trace!(function_code, ?code, "request returned exception");
+                encode_exception(function_code, code, response)
+            }
         }
     }
 

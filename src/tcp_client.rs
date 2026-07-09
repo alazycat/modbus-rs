@@ -95,6 +95,13 @@ impl
     ) -> Result<Self, crate::client::ClientError> {
         let stream =
             std::net::TcpStream::connect(addr).map_err(crate::transport::TransportError::Io)?;
+        let stream_timeout = config.idle_timeout.unwrap_or(config.timeout);
+        stream
+            .set_read_timeout(Some(stream_timeout))
+            .map_err(crate::transport::TransportError::Io)?;
+        stream
+            .set_write_timeout(Some(stream_timeout))
+            .map_err(crate::transport::TransportError::Io)?;
         let server_name = rustls::pki_types::ServerName::try_from(server_name.to_owned())
             .map_err(|e| crate::client::ClientError::Tls(e.to_string()))?;
         let conn = rustls::ClientConnection::new(std::sync::Arc::new(tls_config), server_name)
@@ -138,7 +145,7 @@ mod rtu_over_tcp_tests {
         assert_eq!(coils, vec![0b00001101]);
     }
     #[test]
-    fn connect_rtu_over_tcp_uses_idle_timeout() {
+    fn rtu_over_tcp_idle_timeout() {
         use std::sync::mpsc;
         use std::time::{Duration, Instant};
 
@@ -372,6 +379,71 @@ mod tls_tests {
                 .unwrap();
         let coils = client.read_coils(0x0A, 0, 8).unwrap();
         assert_eq!(coils, vec![0b00001101]);
+    }
+
+    #[test]
+    fn connect_tls_idle_timeout() {
+        use super::TcpClient;
+        use crate::client::ClientError;
+        use std::io::Read;
+        use std::net::TcpListener;
+        use std::sync::mpsc;
+        use std::sync::Arc;
+        use std::thread;
+        use std::time::{Duration, Instant};
+
+        let _ = rustls::crypto::ring::default_provider().install_default();
+
+        let (cert_der, key_der) = self_signed_localhost_cert();
+
+        let server_config = rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(vec![cert_der.clone()], key_der.into())
+            .unwrap();
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let conn = rustls::ServerConnection::new(Arc::new(server_config)).unwrap();
+            let mut stream = rustls::StreamOwned::new(conn, stream);
+            // Complete handshake by reading the client hello, then stop responding.
+            let mut buf = [0u8; 256];
+            let _ = stream.read(&mut buf);
+            thread::sleep(Duration::from_secs(2));
+        });
+
+        let mut root_store = rustls::RootCertStore::empty();
+        root_store.add(cert_der).unwrap();
+        let client_config = rustls::ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let mut config = TcpClientConfig::default();
+            config.timeout = Duration::from_millis(300);
+            config.idle_timeout = Some(Duration::from_millis(50));
+            let mut client =
+                TcpClient::connect_tls(addr, "localhost", client_config, config).unwrap();
+            let result = client.read_coils(0x0A, 0, 8);
+            tx.send(result).unwrap();
+        });
+
+        let start = Instant::now();
+        let result = rx
+            .recv_timeout(Duration::from_millis(200))
+            .expect("client did not return within idle-timeout window");
+        assert!(
+            start.elapsed() < Duration::from_millis(150),
+            "took too long to trigger idle timeout: {:?}",
+            start.elapsed()
+        );
+        match result {
+            Err(ClientError::Timeout) => {}
+            other => panic!("expected idle timeout, got {other:?}"),
+        }
     }
 
     #[tokio::test]

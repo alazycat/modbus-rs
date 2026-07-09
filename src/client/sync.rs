@@ -171,7 +171,12 @@ impl
         baud_rate: u32,
         config: ClientConfig,
     ) -> Result<Self, ClientError> {
-        let serial = crate::serial_transport::open_serial_port(path, baud_rate)
+        let mut serial = crate::serial_transport::open_serial_port(path, baud_rate)
+            .map_err(|e| ClientError::Transport(crate::transport::TransportError::Io(e.into())))?;
+        let serial_timeout = config.idle_timeout.unwrap_or(config.timeout);
+        serial
+            .inner_mut()
+            .set_timeout(serial_timeout)
             .map_err(|e| ClientError::Transport(crate::transport::TransportError::Io(e.into())))?;
         let transport = crate::rtu_transport::RtuTransport::new(serial);
         Ok(Self::with_config(transport, config))

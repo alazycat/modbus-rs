@@ -367,11 +367,11 @@ started from JSON/TOML/YAML files when the `config` feature is enabled.
 `write-multiple-f32`, etc., that exercise the `helpers` feature.
 
 **Acceptance criteria:**
-- [ ] At least read/write u32, f32, and string commands exist.
-- [ ] Endianness/word-order flags exposed.
+- [x] At least read/write u32, f32, and string commands exist.
+- [x] Endianness/word-order flags exposed.
 
 **Verification:**
-- [ ] `cargo build --bin modbus-cli --features cli,helpers` succeeds.
+- [x] `cargo build --bin modbus-cli --features cli,helpers` succeeds.
 
 **Dependencies:** Task 3.4
 

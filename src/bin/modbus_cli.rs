@@ -25,6 +25,8 @@ use modbus::config::{
     client_from_json, client_from_toml, client_from_yaml, server_from_json, server_from_toml,
     server_from_yaml, ClientConfigFile, ConfigError, ServerConfigFile, ServerTransport as ConfigServerTransport,
 };
+#[cfg(feature = "helpers")]
+use modbus::helpers::{Endian, WordOrder};
 #[cfg(feature = "ascii")]
 use modbus::{
     ascii_client::AsyncAsciiClient, ascii_server::AsyncAsciiServer,
@@ -66,6 +68,16 @@ struct ClientArgs {
     #[cfg(feature = "config")]
     #[arg(long, value_name = "PATH")]
     config: Option<PathBuf>,
+
+    /// Byte order for typed register helpers.
+    #[cfg(feature = "helpers")]
+    #[arg(long, value_name = "big|little")]
+    endian: Option<String>,
+
+    /// Word order for multi-register typed helpers.
+    #[cfg(feature = "helpers")]
+    #[arg(long, value_name = "msf|lsf")]
+    word_order: Option<String>,
 
     #[command(subcommand)]
     transport: ClientTransport,
@@ -253,6 +265,63 @@ enum ClientOp {
         /// Register value.
         #[arg(short, long, value_parser = parse_u16)]
         value: u16,
+    },
+    /// Read two holding registers as a u32 (requires helpers feature).
+    #[cfg(feature = "helpers")]
+    ReadHoldingU32 {
+        /// Starting address.
+        #[arg(short, long, value_parser = parse_u16)]
+        address: u16,
+    },
+    /// Read two holding registers as an f32 (requires helpers feature).
+    #[cfg(feature = "helpers")]
+    ReadHoldingF32 {
+        /// Starting address.
+        #[arg(short, long, value_parser = parse_u16)]
+        address: u16,
+    },
+    /// Write a u32 to two holding registers (requires helpers feature).
+    #[cfg(feature = "helpers")]
+    WriteMultipleU32 {
+        /// Register address.
+        #[arg(short, long, value_parser = parse_u16)]
+        address: u16,
+        /// Value to write.
+        #[arg(short, long)]
+        value: u32,
+    },
+    /// Write an f32 to two holding registers (requires helpers feature).
+    #[cfg(feature = "helpers")]
+    WriteMultipleF32 {
+        /// Register address.
+        #[arg(short, long, value_parser = parse_u16)]
+        address: u16,
+        /// Value to write.
+        #[arg(short, long)]
+        value: f32,
+    },
+    /// Read holding registers as a string (requires helpers feature).
+    #[cfg(feature = "helpers")]
+    ReadHoldingString {
+        /// Starting address.
+        #[arg(short, long, value_parser = parse_u16)]
+        address: u16,
+        /// Number of registers.
+        #[arg(short, long, value_parser = parse_u16)]
+        quantity: u16,
+    },
+    /// Write a string to holding registers (requires helpers feature).
+    #[cfg(feature = "helpers")]
+    WriteMultipleString {
+        /// Register address.
+        #[arg(short, long, value_parser = parse_u16)]
+        address: u16,
+        /// String value.
+        #[arg(short, long)]
+        value: String,
+        /// Pad to this many registers (0 for no padding).
+        #[arg(long, default_value = "0")]
+        pad_to: usize,
     },
 }
 
@@ -447,6 +516,26 @@ fn parse_u16(s: &str) -> Result<u16, clap::Error> {
     parse(s, |v| u16::from_str_radix(v, 16), |v| v.parse::<u16>())
 }
 
+#[cfg(feature = "helpers")]
+fn parse_endian(s: &str) -> Result<Endian, Box<dyn std::error::Error + Send + Sync>> {
+    match s {
+        "big" => Ok(Endian::Big),
+        "little" => Ok(Endian::Little),
+        _ => Err(format!("endian must be 'big' or 'little', got '{s}'").into()),
+    }
+}
+
+#[cfg(feature = "helpers")]
+fn parse_word_order(
+    s: &str,
+) -> Result<WordOrder, Box<dyn std::error::Error + Send + Sync>> {
+    match s {
+        "msf" => Ok(WordOrder::MostSignificantFirst),
+        "lsf" => Ok(WordOrder::LeastSignificantFirst),
+        _ => Err(format!("word-order must be 'msf' or 'lsf', got '{s}'").into()),
+    }
+}
+
 fn parse<T>(
     s: &str,
     hex: impl FnOnce(&str) -> Result<T, std::num::ParseIntError>,
@@ -488,13 +577,27 @@ async fn run_client(args: ClientArgs) -> Result<(), Box<dyn std::error::Error + 
     #[cfg(not(feature = "config"))]
     let file_config: Option<ClientConfig> = None;
 
+    #[cfg(feature = "helpers")]
+    let base_config = {
+        let mut c = ClientConfig::default();
+        if let Some(endian) = &args.endian {
+            c.endian = parse_endian(endian)?;
+        }
+        if let Some(word_order) = &args.word_order {
+            c.word_order = parse_word_order(word_order)?;
+        }
+        c
+    };
+    #[cfg(not(feature = "helpers"))]
+    let base_config = ClientConfig::default();
+
     match args.transport {
         ClientTransport::Tcp(tcp) => {
             let addr: SocketAddr = format!("{}:{}", tcp.host, tcp.port).parse()?;
             info!("connecting to {}:{}", tcp.host, tcp.port);
             let config = file_config.unwrap_or_else(|| TcpClientConfig {
                 timeout: Duration::from_secs(tcp.timeout),
-                ..Default::default()
+                ..base_config
             });
             #[cfg(feature = "tls")]
             if tcp.tls {
@@ -524,7 +627,7 @@ async fn run_client(args: ClientArgs) -> Result<(), Box<dyn std::error::Error + 
             let transport = open_serial_rtu(&rtu.path, rtu.baud).await?;
             let config = file_config.unwrap_or_else(|| ClientConfig {
                 timeout: Duration::from_secs(rtu.timeout),
-                ..Default::default()
+                ..base_config
             });
             let mut client = AsyncClient::with_config(transport, config);
             execute_client_op(&mut client, rtu.slave_id, rtu.op).await?;
@@ -534,7 +637,7 @@ async fn run_client(args: ClientArgs) -> Result<(), Box<dyn std::error::Error + 
             info!("connecting RTU-over-TCP to {}:{}", rtu.host, rtu.port);
             let config = file_config.unwrap_or_else(|| ClientConfig {
                 timeout: Duration::from_secs(rtu.timeout),
-                ..Default::default()
+                ..base_config
             });
             let mut client = AsyncClient::connect_rtu_over_tcp(addr, config).await?;
             execute_client_op(&mut client, rtu.unit_id, rtu.op).await?;
@@ -547,7 +650,7 @@ async fn run_client(args: ClientArgs) -> Result<(), Box<dyn std::error::Error + 
             let transport = AsyncUdpTransport::new(socket, remote);
             let config = file_config.unwrap_or_else(|| ClientConfig {
                 timeout: Duration::from_secs(udp.timeout),
-                ..Default::default()
+                ..base_config
             });
             let mut client = AsyncUdpClient::with_config(transport, config);
             execute_client_op(&mut client, udp.unit_id, udp.op).await?;
@@ -560,7 +663,7 @@ async fn run_client(args: ClientArgs) -> Result<(), Box<dyn std::error::Error + 
             let transport = AsyncAsciiTransport::new(stream);
             let config = file_config.unwrap_or_else(|| ClientConfig {
                 timeout: Duration::from_secs(ascii.timeout),
-                ..Default::default()
+                ..base_config
             });
             let mut client = AsyncAsciiClient::with_config(transport, config);
             execute_client_op(&mut client, ascii.slave_id, ascii.op).await?;
@@ -597,6 +700,44 @@ where
             client.write_register(unit_id, address, value).await?;
             println!("OK");
         }
+        #[cfg(feature = "helpers")]
+        ClientOp::ReadHoldingU32 { address } => {
+            println!("{}", client.read_holding_registers_u32(unit_id, address).await?);
+        }
+        #[cfg(feature = "helpers")]
+        ClientOp::ReadHoldingF32 { address } => {
+            println!("{}", client.read_holding_registers_f32(unit_id, address).await?);
+        }
+        #[cfg(feature = "helpers")]
+        ClientOp::WriteMultipleU32 { address, value } => {
+            client.write_multiple_registers_u32(unit_id, address, value).await?;
+            println!("OK");
+        }
+        #[cfg(feature = "helpers")]
+        ClientOp::WriteMultipleF32 { address, value } => {
+            client.write_multiple_registers_f32(unit_id, address, value).await?;
+            println!("OK");
+        }
+        #[cfg(feature = "helpers")]
+        ClientOp::ReadHoldingString { address, quantity } => {
+            println!(
+                "{}",
+                client
+                    .read_holding_registers_string(unit_id, address, quantity)
+                    .await?
+            );
+        }
+        #[cfg(feature = "helpers")]
+        ClientOp::WriteMultipleString {
+            address,
+            value,
+            pad_to,
+        } => {
+            client
+                .write_multiple_registers_string(unit_id, address, &value, pad_to)
+                .await?;
+            println!("OK");
+        }
     }
     Ok(())
 }
@@ -611,6 +752,48 @@ trait ClientMethods<E: std::error::Error> {
     ) -> Result<Vec<u8>, E>;
     async fn write_coil(&mut self, unit_id: u8, address: u16, value: bool) -> Result<(), E>;
     async fn write_register(&mut self, unit_id: u8, address: u16, value: u16) -> Result<(), E>;
+
+    #[cfg(feature = "helpers")]
+    async fn read_holding_registers_u32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<u32, E>;
+    #[cfg(feature = "helpers")]
+    async fn read_holding_registers_f32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<f32, E>;
+    #[cfg(feature = "helpers")]
+    async fn read_holding_registers_string(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        quantity: u16,
+    ) -> Result<String, E>;
+    #[cfg(feature = "helpers")]
+    async fn write_multiple_registers_u32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: u32,
+    ) -> Result<(), E>;
+    #[cfg(feature = "helpers")]
+    async fn write_multiple_registers_f32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: f32,
+    ) -> Result<(), E>;
+    #[cfg(feature = "helpers")]
+    async fn write_multiple_registers_string(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: &str,
+        pad_to: usize,
+    ) -> Result<(), E>;
 }
 
 impl<T> ClientMethods<modbus::tcp_client::TcpClientError> for AsyncTcpClient<T>
@@ -651,6 +834,64 @@ where
     ) -> Result<(), modbus::tcp_client::TcpClientError> {
         (**self).write_register(unit_id, address, value).await
     }
+
+    #[cfg(feature = "helpers")]
+    async fn read_holding_registers_u32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<u32, modbus::tcp_client::TcpClientError> {
+        (**self).read_holding_registers_u32(unit_id, address).await
+    }
+    #[cfg(feature = "helpers")]
+    async fn read_holding_registers_f32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<f32, modbus::tcp_client::TcpClientError> {
+        (**self).read_holding_registers_f32(unit_id, address).await
+    }
+    #[cfg(feature = "helpers")]
+    async fn read_holding_registers_string(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        quantity: u16,
+    ) -> Result<String, modbus::tcp_client::TcpClientError> {
+        (**self)
+            .read_holding_registers_string(unit_id, address, quantity)
+            .await
+    }
+    #[cfg(feature = "helpers")]
+    async fn write_multiple_registers_u32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: u32,
+    ) -> Result<(), modbus::tcp_client::TcpClientError> {
+        (**self).write_multiple_registers_u32(unit_id, address, value).await
+    }
+    #[cfg(feature = "helpers")]
+    async fn write_multiple_registers_f32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: f32,
+    ) -> Result<(), modbus::tcp_client::TcpClientError> {
+        (**self).write_multiple_registers_f32(unit_id, address, value).await
+    }
+    #[cfg(feature = "helpers")]
+    async fn write_multiple_registers_string(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: &str,
+        pad_to: usize,
+    ) -> Result<(), modbus::tcp_client::TcpClientError> {
+        (**self)
+            .write_multiple_registers_string(unit_id, address, value, pad_to)
+            .await
+    }
 }
 
 impl<T> ClientMethods<modbus::client::ClientError> for AsyncClient<T>
@@ -690,6 +931,64 @@ where
         value: u16,
     ) -> Result<(), modbus::client::ClientError> {
         (**self).write_register(unit_id, address, value).await
+    }
+
+    #[cfg(feature = "helpers")]
+    async fn read_holding_registers_u32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<u32, modbus::client::ClientError> {
+        (**self).read_holding_registers_u32(unit_id, address).await
+    }
+    #[cfg(feature = "helpers")]
+    async fn read_holding_registers_f32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<f32, modbus::client::ClientError> {
+        (**self).read_holding_registers_f32(unit_id, address).await
+    }
+    #[cfg(feature = "helpers")]
+    async fn read_holding_registers_string(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        quantity: u16,
+    ) -> Result<String, modbus::client::ClientError> {
+        (**self)
+            .read_holding_registers_string(unit_id, address, quantity)
+            .await
+    }
+    #[cfg(feature = "helpers")]
+    async fn write_multiple_registers_u32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: u32,
+    ) -> Result<(), modbus::client::ClientError> {
+        (**self).write_multiple_registers_u32(unit_id, address, value).await
+    }
+    #[cfg(feature = "helpers")]
+    async fn write_multiple_registers_f32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: f32,
+    ) -> Result<(), modbus::client::ClientError> {
+        (**self).write_multiple_registers_f32(unit_id, address, value).await
+    }
+    #[cfg(feature = "helpers")]
+    async fn write_multiple_registers_string(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: &str,
+        pad_to: usize,
+    ) -> Result<(), modbus::client::ClientError> {
+        (**self)
+            .write_multiple_registers_string(unit_id, address, value, pad_to)
+            .await
     }
 }
 
@@ -732,6 +1031,64 @@ where
     ) -> Result<(), modbus::client::ClientError> {
         (**self).write_register(unit_id, address, value).await
     }
+
+    #[cfg(feature = "helpers")]
+    async fn read_holding_registers_u32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<u32, modbus::client::ClientError> {
+        (**self).read_holding_registers_u32(unit_id, address).await
+    }
+    #[cfg(feature = "helpers")]
+    async fn read_holding_registers_f32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<f32, modbus::client::ClientError> {
+        (**self).read_holding_registers_f32(unit_id, address).await
+    }
+    #[cfg(feature = "helpers")]
+    async fn read_holding_registers_string(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        quantity: u16,
+    ) -> Result<String, modbus::client::ClientError> {
+        (**self)
+            .read_holding_registers_string(unit_id, address, quantity)
+            .await
+    }
+    #[cfg(feature = "helpers")]
+    async fn write_multiple_registers_u32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: u32,
+    ) -> Result<(), modbus::client::ClientError> {
+        (**self).write_multiple_registers_u32(unit_id, address, value).await
+    }
+    #[cfg(feature = "helpers")]
+    async fn write_multiple_registers_f32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: f32,
+    ) -> Result<(), modbus::client::ClientError> {
+        (**self).write_multiple_registers_f32(unit_id, address, value).await
+    }
+    #[cfg(feature = "helpers")]
+    async fn write_multiple_registers_string(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: &str,
+        pad_to: usize,
+    ) -> Result<(), modbus::client::ClientError> {
+        (**self)
+            .write_multiple_registers_string(unit_id, address, value, pad_to)
+            .await
+    }
 }
 
 #[cfg(feature = "ascii")]
@@ -772,6 +1129,64 @@ where
         value: u16,
     ) -> Result<(), modbus::client::ClientError> {
         (**self).write_register(unit_id, address, value).await
+    }
+
+    #[cfg(feature = "helpers")]
+    async fn read_holding_registers_u32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<u32, modbus::client::ClientError> {
+        (**self).read_holding_registers_u32(unit_id, address).await
+    }
+    #[cfg(feature = "helpers")]
+    async fn read_holding_registers_f32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+    ) -> Result<f32, modbus::client::ClientError> {
+        (**self).read_holding_registers_f32(unit_id, address).await
+    }
+    #[cfg(feature = "helpers")]
+    async fn read_holding_registers_string(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        quantity: u16,
+    ) -> Result<String, modbus::client::ClientError> {
+        (**self)
+            .read_holding_registers_string(unit_id, address, quantity)
+            .await
+    }
+    #[cfg(feature = "helpers")]
+    async fn write_multiple_registers_u32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: u32,
+    ) -> Result<(), modbus::client::ClientError> {
+        (**self).write_multiple_registers_u32(unit_id, address, value).await
+    }
+    #[cfg(feature = "helpers")]
+    async fn write_multiple_registers_f32(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: f32,
+    ) -> Result<(), modbus::client::ClientError> {
+        (**self).write_multiple_registers_f32(unit_id, address, value).await
+    }
+    #[cfg(feature = "helpers")]
+    async fn write_multiple_registers_string(
+        &mut self,
+        unit_id: u8,
+        address: u16,
+        value: &str,
+        pad_to: usize,
+    ) -> Result<(), modbus::client::ClientError> {
+        (**self)
+            .write_multiple_registers_string(unit_id, address, value, pad_to)
+            .await
     }
 }
 

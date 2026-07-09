@@ -7,6 +7,10 @@
 
 use std::fmt;
 use std::net::SocketAddr;
+#[cfg(feature = "tls")]
+use std::path::PathBuf;
+#[cfg(feature = "tls")]
+use std::sync::Arc;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
@@ -69,6 +73,23 @@ struct TcpClientArgs {
     /// Response timeout in seconds.
     #[arg(long, default_value = "5")]
     timeout: u64,
+
+    /// Enable TLS.
+    #[cfg(feature = "tls")]
+    #[arg(long)]
+    tls: bool,
+
+    /// Path to PEM-encoded TLS certificate.
+    /// For servers this is the server certificate; for clients it is the
+    /// trusted server/CA certificate.
+    #[cfg(feature = "tls")]
+    #[arg(long, value_name = "PATH")]
+    tls_cert: Option<PathBuf>,
+
+    /// Path to PEM-encoded TLS private key (server only).
+    #[cfg(feature = "tls")]
+    #[arg(long, value_name = "PATH")]
+    tls_key: Option<PathBuf>,
 
     #[command(subcommand)]
     op: ClientOp,
@@ -175,6 +196,21 @@ struct TcpServerArgs {
     /// Number of input registers.
     #[arg(long, default_value = "0", value_parser = parse_u16)]
     input_registers: u16,
+
+    /// Enable TLS.
+    #[cfg(feature = "tls")]
+    #[arg(long)]
+    tls: bool,
+
+    /// Path to PEM-encoded TLS certificate (server only).
+    #[cfg(feature = "tls")]
+    #[arg(long, value_name = "PATH")]
+    tls_cert: Option<PathBuf>,
+
+    /// Path to PEM-encoded TLS private key (server only).
+    #[cfg(feature = "tls")]
+    #[arg(long, value_name = "PATH")]
+    tls_key: Option<PathBuf>,
 }
 
 #[derive(Parser)]
@@ -252,13 +288,32 @@ async fn run_client(args: ClientArgs) -> Result<(), Box<dyn std::error::Error + 
         ClientTransport::Tcp(tcp) => {
             let addr: SocketAddr = format!("{}:{}", tcp.host, tcp.port).parse()?;
             info!("connecting to {}:{}", tcp.host, tcp.port);
-            let stream = TcpStream::connect(addr).await?;
             let config = TcpClientConfig {
                 timeout: Duration::from_secs(tcp.timeout),
                 ..Default::default()
             };
-            let mut client = AsyncTcpClient::with_config(AsyncTcpTransport::new(stream), config);
-            execute_client_op(&mut client, tcp.unit_id, tcp.op).await?;
+            #[cfg(feature = "tls")]
+            if tcp.tls {
+                let cert_path = tcp
+                    .tls_cert
+                    .as_ref()
+                    .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+                        "--tls requires --tls-cert for the trusted server/CA certificate".into()
+                    })?;
+                let connector = build_tls_connector(cert_path)?;
+                let mut client = AsyncTcpClient::connect_tls(addr, &tcp.host, connector, config).await?;
+                execute_client_op(&mut client, tcp.unit_id, tcp.op).await?;
+            } else {
+                let stream = TcpStream::connect(addr).await?;
+                let mut client = AsyncTcpClient::with_config(AsyncTcpTransport::new(stream), config);
+                execute_client_op(&mut client, tcp.unit_id, tcp.op).await?;
+            }
+            #[cfg(not(feature = "tls"))]
+            {
+                let stream = TcpStream::connect(addr).await?;
+                let mut client = AsyncTcpClient::with_config(AsyncTcpTransport::new(stream), config);
+                execute_client_op(&mut client, tcp.unit_id, tcp.op).await?;
+            }
         }
         ClientTransport::Rtu(rtu) => {
             info!("opening serial port {} at {} baud", rtu.path, rtu.baud);
@@ -416,6 +471,27 @@ async fn run_tcp_server(
     ));
 
     let listener = TcpListener::bind(args.bind).await?;
+
+    #[cfg(feature = "tls")]
+    if args.tls {
+        let cert_path = args
+            .tls_cert
+            .as_ref()
+            .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+                "--tls requires --tls-cert".into()
+            })?;
+        let key_path = args
+            .tls_key
+            .as_ref()
+            .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+                "--tls requires --tls-key".into()
+            })?;
+        let tls_config = build_tls_server_config(cert_path, key_path)?;
+        info!("TLS TCP server listening on {}", args.bind);
+        let mut server = AsyncTcpServer::new(store);
+        return server.serve_tls(listener, args.unit_id, tls_config).await.map_err(Into::into);
+    }
+
     info!("TCP server listening on {}", args.bind);
 
     loop {
@@ -456,4 +532,57 @@ fn format_hex(bytes: &[u8]) -> String {
         .map(|b| format!("{b:02x}"))
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+#[cfg(feature = "tls")]
+fn load_certs(path: &PathBuf) -> Result<Vec<tokio_rustls::rustls::pki_types::CertificateDer<'static>>, Box<dyn std::error::Error + Send + Sync>> {
+    let file = std::fs::File::open(path)?;
+    let mut reader = std::io::BufReader::new(file);
+    let certs: Vec<_> = rustls_pemfile::certs(&mut reader)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("failed to parse certificate from {}: {e}", path.display()))?;
+    if certs.is_empty() {
+        return Err(format!("no certificates found in {}", path.display()).into());
+    }
+    Ok(certs)
+}
+
+#[cfg(feature = "tls")]
+fn load_private_key(path: &PathBuf) -> Result<tokio_rustls::rustls::pki_types::PrivateKeyDer<'static>, Box<dyn std::error::Error + Send + Sync>> {
+    let file = std::fs::File::open(path)?;
+    let mut reader = std::io::BufReader::new(file);
+    rustls_pemfile::private_key(&mut reader)
+        .map_err(|e| format!("failed to parse private key from {}: {e}", path.display()))?
+        .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+            format!("no private key found in {}", path.display()).into()
+        })
+}
+
+#[cfg(feature = "tls")]
+fn build_tls_connector(
+    cert_path: &PathBuf,
+) -> Result<tokio_rustls::TlsConnector, Box<dyn std::error::Error + Send + Sync>> {
+    let certs = load_certs(cert_path)?;
+    let mut root_store = tokio_rustls::rustls::RootCertStore::empty();
+    for cert in certs {
+        root_store.add(cert)?;
+    }
+    let config = tokio_rustls::rustls::ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+    Ok(tokio_rustls::TlsConnector::from(Arc::new(config)))
+}
+
+#[cfg(feature = "tls")]
+fn build_tls_server_config(
+    cert_path: &PathBuf,
+    key_path: &PathBuf,
+) -> Result<Arc<tokio_rustls::rustls::ServerConfig>, Box<dyn std::error::Error + Send + Sync>> {
+    let cert_chain = load_certs(cert_path)?;
+    let key = load_private_key(key_path)?;
+    let config = tokio_rustls::rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(cert_chain, key)
+        .map_err(|e| format!("failed to build TLS server config: {e}"))?;
+    Ok(Arc::new(config))
 }

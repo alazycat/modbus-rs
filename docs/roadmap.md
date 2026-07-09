@@ -298,12 +298,12 @@ instrumentation behind `cfg(feature = "tracing")`.
 TCP client and TCP server modes.
 
 **Acceptance criteria:**
-- [ ] `modbus-cli tcp-client --tls ...` connects via TLS.
-- [ ] `modbus-cli tcp-server --tls-cert ... --tls-key ...` serves TLS.
-- [ ] Compiles under `cli,tls` features.
+- [x] `modbus-cli tcp-client --tls ...` connects via TLS.
+- [x] `modbus-cli tcp-server --tls-cert ... --tls-key ...` serves TLS.
+- [x] Compiles under `cli,tls` features.
 
 **Verification:**
-- [ ] `cargo build --bin modbus-cli --features cli,tls` succeeds.
+- [x] `cargo build --bin modbus-cli --features cli,tls` succeeds.
 
 **Dependencies:** None
 

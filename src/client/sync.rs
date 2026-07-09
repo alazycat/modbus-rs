@@ -145,7 +145,9 @@ impl Client<crate::rtu_transport::RtuTransport<std::net::TcpStream>> {
     ) -> Result<Self, ClientError> {
         let stream =
             std::net::TcpStream::connect(addr).map_err(crate::transport::TransportError::Io)?;
-        stream.set_read_timeout(Some(config.timeout)).ok();
+        let stream_timeout = config.idle_timeout.unwrap_or(config.timeout);
+        stream.set_read_timeout(Some(stream_timeout)).ok();
+        stream.set_write_timeout(Some(stream_timeout)).ok();
         let transport = crate::rtu_transport::RtuTransport::new(stream);
         Ok(Self::with_config(transport, config))
     }

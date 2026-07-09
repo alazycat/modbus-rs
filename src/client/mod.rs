@@ -60,6 +60,12 @@ pub use crate::udp_client::AsyncUdpClient;
 pub struct ClientConfig {
     /// Maximum time to wait for a response.
     pub timeout: Duration,
+    /// Maximum time the connection may remain idle before reads/writes time out.
+    ///
+    /// When set, the underlying stream's read and write timeouts are configured
+    /// to this value so that an idle connection is closed instead of remaining
+    /// open indefinitely. If `None`, the response `timeout` is used as today.
+    pub idle_timeout: Option<Duration>,
     /// Byte order used by typed register helpers.
     #[cfg(feature = "helpers")]
     pub endian: Endian,
@@ -72,6 +78,7 @@ impl Default for ClientConfig {
     fn default() -> Self {
         Self {
             timeout: Duration::from_secs(5),
+            idle_timeout: None,
             #[cfg(feature = "helpers")]
             endian: Endian::Big,
             #[cfg(feature = "helpers")]

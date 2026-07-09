@@ -137,6 +137,45 @@ mod rtu_over_tcp_tests {
         let coils = client.read_coils(0x0A, 0, 8).unwrap();
         assert_eq!(coils, vec![0b00001101]);
     }
+    #[test]
+    fn connect_rtu_over_tcp_uses_idle_timeout() {
+        use std::sync::mpsc;
+        use std::time::{Duration, Instant};
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        thread::spawn(move || {
+            let (_stream, _) = listener.accept().unwrap();
+            // Keep the connection open but never send data.
+            thread::sleep(Duration::from_secs(2));
+        });
+
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let mut config = TcpClientConfig::default();
+            config.timeout = Duration::from_millis(300);
+            config.idle_timeout = Some(Duration::from_millis(50));
+            let mut client =
+                crate::client::Client::connect_rtu_over_tcp(addr, config).unwrap();
+            let result = client.read_coils(0x0A, 0, 8);
+            tx.send(result).unwrap();
+        });
+
+        let start = Instant::now();
+        let result = rx
+            .recv_timeout(Duration::from_millis(200))
+            .expect("client did not return within idle-timeout window");
+        assert!(
+            start.elapsed() < Duration::from_millis(150),
+            "took too long to trigger idle timeout: {:?}",
+            start.elapsed()
+        );
+        match result {
+            Err(crate::client::ClientError::Timeout) => {}
+            other => panic!("expected idle timeout, got {other:?}"),
+        }
+    }
 }
 
 #[cfg(all(test, feature = "sync"))]

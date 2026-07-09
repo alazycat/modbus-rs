@@ -36,6 +36,12 @@ impl std::error::Error for ConfigError {}
 pub struct ClientConfigFile {
     /// Response timeout in milliseconds.
     pub timeout_ms: u64,
+    /// Idle timeout in milliseconds.
+    ///
+    /// When set, the underlying stream's read and write timeouts are configured
+    /// to this value so that an idle connection is closed instead of remaining
+    /// open indefinitely.
+    pub idle_timeout_ms: Option<u64>,
     /// Optional retry policy.
     pub retry_policy: Option<RetryPolicyFile>,
     /// Byte order used by typed register helpers (requires the `helpers` feature).
@@ -50,6 +56,7 @@ impl Default for ClientConfigFile {
     fn default() -> Self {
         Self {
             timeout_ms: 5000,
+            idle_timeout_ms: None,
             retry_policy: None,
             #[cfg(feature = "helpers")]
             endian: None,
@@ -94,6 +101,7 @@ impl ClientConfigFile {
         use crate::helpers::{Endian, WordOrder};
 
         let timeout = Duration::from_millis(self.timeout_ms);
+        let idle_timeout = self.idle_timeout_ms.map(Duration::from_millis);
 
         let retry = match self.retry_policy {
             Some(policy) => RetryPolicy {
@@ -129,6 +137,7 @@ impl ClientConfigFile {
 
         let config = ClientConfig {
             timeout,
+            idle_timeout,
             #[cfg(feature = "helpers")]
             endian,
             #[cfg(feature = "helpers")]

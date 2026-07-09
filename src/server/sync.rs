@@ -49,7 +49,7 @@ use crate::function_codes::write_single_register::{
     WriteSingleRegisterRequest, WriteSingleRegisterResponse,
 };
 
-use super::DataStore;
+use super::{DataStore, RequestHook};
 
 /// A synchronous Modbus server.
 ///
@@ -58,6 +58,7 @@ use super::DataStore;
 #[derive(Debug)]
 pub struct Server<D: DataStore> {
     store: D,
+    hook: Option<Box<dyn RequestHook>>,
     #[cfg(feature = "metrics")]
     metrics: Option<alloc::sync::Arc<crate::metrics::Metrics>>,
 }
@@ -67,6 +68,7 @@ impl<D: DataStore> Server<D> {
     pub fn new(store: D) -> Self {
         Self {
             store,
+            hook: None,
             #[cfg(feature = "metrics")]
             metrics: None,
         }
@@ -77,6 +79,7 @@ impl<D: DataStore> Server<D> {
     pub fn with_metrics(store: D, metrics: alloc::sync::Arc<crate::metrics::Metrics>) -> Self {
         Self {
             store,
+            hook: None,
             metrics: Some(metrics),
         }
     }
@@ -95,6 +98,40 @@ impl<D: DataStore> Server<D> {
     /// Return a mutable reference to the underlying store.
     pub fn store_mut(&mut self) -> &mut D {
         &mut self.store
+    }
+
+    /// Attach a request hook to this server.
+    pub fn with_hook(mut self, hook: Box<dyn RequestHook>) -> Self {
+        self.hook = Some(hook);
+        self
+    }
+
+    /// Dispatch a request PDU with hook interception and write the response PDU
+    /// into `response`.
+    ///
+    /// `unit_id` is passed to the hook for context; it is not part of the PDU
+    /// itself.
+    pub fn dispatch_with_hook(
+        &mut self,
+        unit_id: u8,
+        request: &[u8],
+        response: &mut [u8],
+    ) -> Result<usize, EncodeError> {
+        if let Some(ref mut hook) = self.hook {
+            if let Err(exc) = hook.before_request(unit_id, request) {
+                let n = encode_exception(exc.function_code, exc.exception_code, response)?;
+                hook.after_response(unit_id, request, &response[..n]);
+                return Ok(n);
+            }
+        }
+
+        let n = self.dispatch(request, response)?;
+
+        if let Some(ref mut hook) = self.hook {
+            hook.after_response(unit_id, request, &response[..n]);
+        }
+
+        Ok(n)
     }
 
     /// Dispatch a request PDU and write the response PDU into `response`.
@@ -532,5 +569,24 @@ mod tests {
 
         assert_eq!(metrics.requests_received(), 1);
         assert_eq!(metrics.responses_sent(), 1);
+    }
+
+    #[test]
+    fn noop_hook_does_not_change_response() {
+        use crate::server::NoopHook;
+
+        let mut store = MemoryStore::new(16, 0, 0, 0);
+        store.write_coils(0, &[true, false, true, true]).unwrap();
+
+        let req = ReadCoilsRequest::new(0, 8).unwrap();
+        let mut request = [0u8; 5];
+        req.encode(&mut request).unwrap();
+
+        let mut server = Server::new(store).with_hook(Box::new(NoopHook));
+        let mut response = [0u8; 512];
+        let n = server.dispatch_with_hook(0x01, &request, &mut response).unwrap();
+
+        assert_eq!(n, 3);
+        assert_eq!(response[..n], [0x01, 0x01, 0b00001101]);
     }
 }

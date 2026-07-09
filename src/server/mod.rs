@@ -3,6 +3,7 @@
 #![cfg(any(feature = "sync", feature = "async"))]
 
 pub mod data_store;
+pub mod hook;
 
 mod sync;
 
@@ -10,6 +11,7 @@ mod sync;
 pub mod r#async;
 
 pub use data_store::{DataStore, MemoryStore, SharedStore};
+pub use hook::{NoopHook, RequestHook};
 pub use sync::Server;
 
 #[cfg(feature = "async")]

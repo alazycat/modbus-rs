@@ -2,7 +2,9 @@
 
 This document compares the current Rust `modbus` crate with the popular Go
 implementation **[github.com/adibhanna/modbus-go](https://github.com/adibhanna/modbus-go)**.
-The goal is to identify functional gaps and guide the project's roadmap.
+The original goal was to identify functional gaps; as of version `0.1.2` the
+gap inventory has flipped from "missing core features" to "missing examples
+and release polish".
 
 ## Scope note
 
@@ -17,104 +19,89 @@ are not covered here.
 | Dimension | `modbus` (this crate) | `modbus-go` |
 |---|---|---|
 | Language / packaging | Rust, Cargo crate | Go, module |
-| Transports | RTU, ASCII, TCP, UDP | TCP, RTU, ASCII, UDP, Serial, RTU-over-TCP, **TLS** |
+| Transports | TCP, UDP, RTU, ASCII, serial (async + sync), RTU-over-TCP, **TLS over TCP** | TCP, RTU, ASCII, UDP, serial, RTU-over-TCP, **TLS** |
 | I/O model | Sync + `tokio` async | Sync (goroutine-based concurrency) |
 | Roles | Client + Server | Client + Server |
 | Function codes | 19 public function codes | 19 public function codes |
-| High-level data helpers | Present under `helpers` feature, but not yet integrated into client API | Built into client: `uint32/64`, `int32/64`, `float32/64`, `string`, raw bytes, with configurable endianness/word order |
-| Auto-reconnect / retries | Not currently implemented | Built-in |
-| Broadcast (unit ID 0) | Not currently implemented | Supported |
-| Configuration | Cargo feature flags | JSON-based configuration |
-| Target platforms | Optional `no_std` + `alloc` | Go standard library targets |
-| CLI tool | `modbus-cli` (under `cli` feature) | Not advertised |
-| Maturity | Version `0.1.0`, active development | Advertised as production-ready |
+| High-level data helpers | Integrated via `ClientMethods` behind `helpers` feature: `u16`/`i16`, `u32`/`i32`, `u64`/`i64`, `f32`/`f64`, strings, raw bytes; configurable endianness and word order | Built into client: `uint32/64`, `int32/64`, `float32/64`, `string`, raw bytes, with configurable endianness/word order |
+| Auto-reconnect / retries | Implemented: `RetryAdapter` / `AsyncRetryAdapter` with configurable `RetryPolicy` | Built-in |
+| Broadcast (unit ID 0) | Implemented for RTU/ASCII client and server | Supported |
+| Idle timeout / keep-alive | Implemented via `ClientConfig.idle_timeout` / `idle_timeout_ms`, applied to streams | Built-in |
+| Request hooks / middleware | Implemented: `RequestHook` trait integrated into sync/async servers; `NoopHook` default; `logging_hook` example | Built-in logger |
+| Pluggable `DataStore` | Public `DataStore` trait; `MemoryStore` and thread-safe `SharedStore` included; no built-in file/Redis adapters | Pluggable store |
+| Configuration | Cargo feature flags + JSON/TOML/YAML config files behind `config` feature | JSON-based configuration |
+| Observability | Optional `tracing` instrumentation across transports and servers; optional atomic `metrics` counters | Pluggable logger |
+| Target platforms | Optional `no_std` + `alloc`; `std` default | Go standard library targets |
+| CLI tool | `modbus-cli` (under `cli` feature): TCP, TLS, UDP, RTU-over-TCP, RTU/ASCII serial, typed helpers, config files | Not advertised |
+| Maturity | Version `0.1.2`, active development | Advertised as production-ready |
 
-## Transport coverage gap
+## Transport coverage
 
-`modbus-go` supports two transport variants that this crate does not yet
-implement:
+This crate now matches `modbus-go` on every transport variant:
 
-- **TLS over TCP**: encrypted Modbus TCP, increasingly required in industrial
-  deployments.
-- **RTU over TCP**: wrapping RTU frames inside a TCP stream, commonly used with
-  serial-to-Ethernet converters.
+- **TCP**: sync + async client and server.
+- **UDP**: async client and server.
+- **RTU serial**: async via `tokio-serial` (`serial` feature) and sync via
+  `serialport` (`sync-serial` feature), client and server.
+- **ASCII serial**: async via `tokio-serial` and sync via `serialport`, client
+  and server.
+- **RTU over TCP**: sync + async client and server.
+- **TLS over TCP**: async client and server via `tokio-rustls` / `rustls`.
 
-In addition, this crate's serial support is currently async-only (`serial`
-feature requires `rtu + async + tokio-serial`). A synchronous serial RTU/ASCII
-path would widen the embedded/PLC use cases.
+## Client API
 
-## Client API gap
+The `helpers` feature is no longer just a utility module: the `ClientMethods`
+trait exposes typed methods such as `read_holding_registers_u32`,
+`write_multiple_registers_f32`, and string helpers directly on TCP, RTU,
+RTU-over-TCP, UDP, and ASCII clients. Callers no longer need to manually
+convert `[u16]` registers.
 
-The `helpers` module already provides byte/endianness conversions for `u16`,
-`u32`, `u64`, signed variants, `f32`, `f64`, and strings. However, callers must
-still:
+Runtime resilience features:
 
-1. Issue `read_holding_registers(...)` (or similar).
-2. Manually convert the returned `[u16]` via helpers such as
-   `u32_from_registers`.
+- **Retry / reconnect**: `RetryAdapter` and `AsyncRetryAdapter` wrap any
+  `AduAdapter` and rebuild the connection using a user-supplied factory.
+- **Broadcast**: RTU/ASCII clients skip the response read for unit ID 0, and
+  servers suppress the response.
+- **Idle timeout**: all sync and async transports read `config.idle_timeout`
+  and apply it to the underlying stream.
 
-`modbus-go` exposes high-level methods like `ReadHoldingRegistersAsUint32` that
-combine the two steps. Bridging this gap would significantly improve ergonomics.
+## Server capabilities
 
-Other client runtime features present in `modbus-go` but missing here:
+- **Sync server**: `Server<D: DataStore>` with request hooks and optional
+  metrics.
+- **Async server**: `AsyncServer<D: DataStore>` with the same hook and metrics
+  seam.
+- **RTU server**: sync `RtuServer` and async `AsyncRtuServer`, including serial
+  helpers.
+- **RTU-over-TCP server**: `RtuOverTcpServer` and `AsyncRtuOverTcpServer`.
+- **TCP server**: `TcpServer` and `AsyncTcpServer`, including TLS.
+- **DataStore**: public trait with `MemoryStore` and thread-safe `SharedStore`.
+  Custom stores can be supplied without forking the crate.
 
-- Automatic reconnect and retry policy.
-- Broadcast requests (no response expected).
-- Idle connection timeout / keep-alive.
+## Configuration and observability
 
-## Server capabilities gap
+- **Config files**: `ClientConfigFile` and `ServerConfigFile` deserialize from
+  JSON, TOML, or YAML when the `config` feature is enabled. They cover
+  timeouts, retry policy, endianness/word order, store sizes, and unit ID.
+- **Tracing**: optional `tracing::trace!`/`debug!` events on every transport
+  send/recv and server dispatch path, all behind `cfg(feature = "tracing")`.
+- **Metrics**: optional atomic counters for requests, exceptions, timeouts, and
+  retries, behind `cfg(feature = "metrics")`.
 
-- **Async RTU server**: this crate currently exposes `rtu_server` only under the
-  `sync` feature. An async equivalent is needed for parity with the async TCP/UDP
-  servers.
-- **Pluggable data store**: `MemoryStore` exists, but there is no built-in path
-  for Redis, file-backed, or user-provided stores.
-- **Request hooks / middleware**: logging, authentication, and rate limiting
-  require extension points.
+## Remaining gaps
 
-## Configuration and observability gap
+The core feature set is now on par with `modbus-go`. The remaining work is
+ecosystem polish rather than functional parity:
 
-`modbus-go` supports JSON configuration and a pluggable logger. This crate
-already depends on `tracing` for the CLI feature, but runtime logging and
-metrics are not unified across client/server code. A configuration loader
-(JSON, TOML, or YAML) would also help server deployments.
-
-## Suggested roadmap
-
-The following ordering is intentionally lazy: fill the highest-value gaps first
-before adding polish.
-
-### Phase 1 — Transport parity (high priority)
-
-1. Add **TLS over TCP** transport.
-2. Add **RTU over TCP** framing/transport.
-3. Add **synchronous serial RTU/ASCII** support (currently async-only).
-
-### Phase 2 — Client ergonomics (high priority)
-
-1. Integrate `helpers` into the client API, e.g.
-   `client.read_holding_registers_u32(...)`,
-   `client.read_holding_registers_f32(...)`, etc.
-2. Add automatic reconnect and configurable retry policy.
-3. Add broadcast support for RTU/ASCII.
-
-### Phase 3 — Server and runtime (medium priority)
-
-1. Implement async RTU server.
-2. Add pluggable `DataStore` examples (file-backed, custom trait usage).
-3. Add request hooks for logging, metrics, and access control.
-
-### Phase 4 — Configuration and observability (medium priority)
-
-1. Add configuration file loading (JSON/TOML/YAML) for client and server.
-2. Unify `tracing` instrumentation across transports and runtimes.
-3. Add optional metrics (requests, exceptions, timeouts, retries).
-
-### Phase 5 — Ecosystem maturity (lower priority)
-
-1. Expand `loopback-tests` to cover all `transport × sync/async` combinations.
-2. Add a cookbook of minimal examples per transport.
-3. Publish to crates.io and move toward a stable `1.0` API.
+1. **Pluggable `DataStore` examples**: the trait is public, but the crate ships
+   only `MemoryStore` and `SharedStore`. A file-backed or Redis-backed example
+   would demonstrate the seam.
+2. **Example coverage**: a minimal example per transport and major feature is
+   being added in Phase 4 (see `examples/`).
+3. **Loopback test matrix**: expand integration tests to cover more
+   `transport × sync/async` combinations.
+4. **crates.io release**: finalize metadata, publish `--dry-run`, and tag a
+   stable `0.2.0`.
 
 ## Sources
 

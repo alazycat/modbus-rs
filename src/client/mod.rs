@@ -7,8 +7,11 @@ use core::time::Duration;
 use crate::error::{DecodeError, EncodeError};
 use crate::exception::ExceptionResponse;
 #[cfg(feature = "helpers")]
-use crate::helpers::{Endian, WordOrder};
+use crate::helpers::{self, Endian, WordOrder};
 use crate::transport::TransportError;
+
+#[macro_use]
+mod macros;
 
 #[cfg(feature = "sync")]
 pub mod sync;
@@ -228,4 +231,377 @@ pub(crate) fn pack_bits(bits: &[bool]) -> alloc::vec::Vec<u8> {
         }
     }
     bytes
+}
+
+#[cfg(feature = "helpers")]
+pub(crate) fn bytes_to_words(
+    bytes: &[u8],
+    endian: Endian,
+) -> Result<alloc::vec::Vec<u16>, ClientError> {
+    if !bytes.len().is_multiple_of(2) {
+        return Err(ClientError::Decode(DecodeError::InvalidLength));
+    }
+    bytes
+        .chunks_exact(2)
+        .map(|chunk| helpers::u16_from_bytes(chunk, endian))
+        .collect::<Result<alloc::vec::Vec<_>, _>>()
+        .map_err(ClientError::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec::Vec;
+    use std::sync::{Arc, Mutex};
+
+    /// Mock adapter that satisfies both [`AduAdapter`] and [`AsyncAduAdapter`]
+    /// for tests in this module.
+    struct MockAduAdapter {
+        handler: Box<dyn Fn(u8, &[u8]) -> Result<Vec<u8>, ClientError> + Send + Sync>,
+        recorded: Arc<Mutex<Vec<Vec<u8>>>>,
+    }
+
+    impl MockAduAdapter {
+        fn new<F>(handler: F) -> Self
+        where
+            F: Fn(u8, &[u8]) -> Result<Vec<u8>, ClientError> + Send + Sync + 'static,
+        {
+            Self {
+                handler: Box::new(handler),
+                recorded: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+
+        fn recorded(&self) -> Vec<Vec<u8>> {
+            self.recorded.lock().unwrap().clone()
+        }
+
+        fn share_recorded(&self) -> Arc<Mutex<Vec<Vec<u8>>>> {
+            self.recorded.clone()
+        }
+    }
+
+    #[cfg(feature = "sync")]
+    impl AduAdapter for MockAduAdapter {
+        fn send_receive(
+            &mut self,
+            unit_id: u8,
+            request_pdu: &[u8],
+        ) -> Result<Vec<u8>, ClientError> {
+            self.recorded.lock().unwrap().push(request_pdu.to_vec());
+            (self.handler)(unit_id, request_pdu)
+        }
+    }
+
+    #[cfg(feature = "async")]
+    impl AsyncAduAdapter for MockAduAdapter {
+        async fn send_receive(
+            &mut self,
+            unit_id: u8,
+            request_pdu: &[u8],
+        ) -> Result<Vec<u8>, ClientError> {
+            self.recorded.lock().unwrap().push(request_pdu.to_vec());
+            (self.handler)(unit_id, request_pdu)
+        }
+    }
+
+    macro_rules! dispatch_tests {
+        ([$($async:tt)*] $attr:meta, $core:ident, $adapter:ident, [$($await:tt)*]) => {
+            #[$attr]
+            $($async)* fn dispatch_read_coils_roundtrip() -> Result<(), ClientError> {
+                let request_pdu = {
+                    let req = crate::function_codes::read_coils::ReadCoilsRequest::new(0x0000, 10)
+                        .map_err(ClientError::Decode)?;
+                    let mut buf = [0u8; 5];
+                    let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
+                    buf[..n].to_vec()
+                };
+                let response_pdu = {
+                    let resp = crate::function_codes::read_coils::ReadCoilsResponse {
+                        coil_status: vec![0b11001011, 0b00000010],
+                    };
+                    let mut buf = [0u8; 4];
+                    let n = resp.encode(&mut buf).map_err(ClientError::Encode)?;
+                    buf[..n].to_vec()
+                };
+
+                let expected_response_pdu = response_pdu.clone();
+                let mut client = $core::new(MockAduAdapter::new(move |_unit_id, _req| {
+                    Ok(response_pdu.clone())
+                }));
+                let pdu = client.dispatch(0x01, &request_pdu)$($await)*?;
+                assert_eq!(pdu, expected_response_pdu);
+
+                let decoded =
+                    crate::function_codes::read_coils::ReadCoilsResponse::decode(&pdu)
+                        .map_err(ClientError::Decode)?;
+                assert_eq!(decoded.coil_status, vec![0b11001011, 0b00000010]);
+                Ok(())
+            }
+
+            #[$attr]
+            $($async)* fn dispatch_returns_exception() -> Result<(), ClientError> {
+                let request_pdu = {
+                    let req = crate::function_codes::read_coils::ReadCoilsRequest::new(0x0000, 10)
+                        .map_err(ClientError::Decode)?;
+                    let mut buf = [0u8; 5];
+                    let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
+                    buf[..n].to_vec()
+                };
+                let exception_pdu = {
+                    let exc = crate::exception::ExceptionResponse::new(
+                        0x01,
+                        crate::exception::ExceptionCode::IllegalDataAddress,
+                    );
+                    let mut buf = [0u8; 2];
+                    let n = exc.encode(&mut buf).map_err(ClientError::Encode)?;
+                    buf[..n].to_vec()
+                };
+
+                let mut client = $core::new(MockAduAdapter::new(move |_unit_id, _req| {
+                    Ok(exception_pdu.clone())
+                }));
+                let err = client.dispatch(0x01, &request_pdu)$($await)*.unwrap_err();
+                assert!(matches!(err, ClientError::Exception(_)));
+                Ok(())
+            }
+
+            #[$attr]
+            $($async)* fn dispatch_propagates_timeout() -> Result<(), ClientError> {
+                let mut client = $core::new(MockAduAdapter::new(move |_unit_id, _req| {
+                    Err(ClientError::Timeout)
+                }));
+                let err = client
+                    .dispatch(0x01, &[0x01, 0x00, 0x00, 0x00, 0x0A])
+                    $($await)*
+                    .unwrap_err();
+                assert!(matches!(err, ClientError::Timeout));
+                Ok(())
+            }
+
+            #[$attr]
+            $($async)* fn dispatch_rejects_mismatched_function() -> Result<(), ClientError> {
+                let request_pdu = {
+                    let req = crate::function_codes::read_coils::ReadCoilsRequest::new(0x0000, 1)
+                        .map_err(ClientError::Decode)?;
+                    let mut buf = [0u8; 5];
+                    let n = req.encode(&mut buf).map_err(ClientError::Encode)?;
+                    buf[..n].to_vec()
+                };
+                let response_pdu = {
+                    let resp = crate::function_codes::read_discrete_inputs::ReadDiscreteInputsResponse {
+                        input_status: vec![0x01],
+                    };
+                    let mut buf = [0u8; 3];
+                    let n = resp.encode(&mut buf).map_err(ClientError::Encode)?;
+                    buf[..n].to_vec()
+                };
+
+                let mut client = $core::new(MockAduAdapter::new(move |_unit_id, _req| {
+                    Ok(response_pdu.clone())
+                }));
+                let err = client.dispatch(0x01, &request_pdu)$($await)*.unwrap_err();
+                assert!(matches!(err, ClientError::InvalidResponse));
+                Ok(())
+            }
+        };
+    }
+
+    #[cfg(all(test, feature = "sync"))]
+    mod sync_tests {
+        use super::*;
+        dispatch_tests!([] test, ClientCore, AduAdapter, []);
+    }
+
+    #[cfg(all(test, feature = "async"))]
+    mod async_tests {
+        use super::*;
+        dispatch_tests!([async] tokio::test, AsyncClientCore, AsyncAduAdapter, [.await]);
+    }
+
+    #[cfg(feature = "helpers")]
+    macro_rules! typed_helpers_tests {
+        ([$($async:tt)*] $attr:meta, $core:ident, $adapter:ident, [$($await:tt)*]) => {
+            #[$attr]
+            $($async)* fn read_holding_registers_u16_uses_endian_config() -> Result<(), ClientError> {
+                let mut big_config = ClientConfig::default();
+                big_config.endian = Endian::Big;
+                let mut client = $core::with_config(
+                    MockAduAdapter::new(move |_, _| Ok(vec![0x03, 0x02, 0x12, 0x34])),
+                    big_config,
+                );
+                let value = client.read_holding_registers_u16(0x01, 0)$($await)*?;
+                assert_eq!(value, 0x1234);
+
+                let mut little_config = ClientConfig::default();
+                little_config.endian = Endian::Little;
+                let mut client = $core::with_config(
+                    MockAduAdapter::new(move |_, _| Ok(vec![0x03, 0x02, 0x12, 0x34])),
+                    little_config,
+                );
+                let value = client.read_holding_registers_u16(0x01, 0)$($await)*?;
+                assert_eq!(value, 0x3412);
+                Ok(())
+            }
+
+            #[$attr]
+            $($async)* fn read_holding_registers_u32_big_endian_msf() -> Result<(), ClientError> {
+                let mut client = $core::new(MockAduAdapter::new(move |_, _| {
+                    Ok(vec![0x03, 0x04, 0x12, 0x34, 0x56, 0x78])
+                }));
+                let value = client.read_holding_registers_u32(0x01, 0)$($await)*?;
+                assert_eq!(value, 0x12345678);
+                Ok(())
+            }
+
+            #[$attr]
+            $($async)* fn read_holding_registers_u32_little_endian_lsf() -> Result<(), ClientError> {
+                let mut config = ClientConfig::default();
+                config.endian = Endian::Little;
+                config.word_order = WordOrder::LeastSignificantFirst;
+                let mut client = $core::with_config(
+                    MockAduAdapter::new(move |_, _| Ok(vec![0x03, 0x04, 0x56, 0x78, 0x12, 0x34])),
+                    config,
+                );
+                let value = client.read_holding_registers_u32(0x01, 0)$($await)*?;
+                assert_eq!(value, 0x12345678);
+                Ok(())
+            }
+
+            #[$attr]
+            $($async)* fn read_holding_registers_f32_roundtrip() -> Result<(), ClientError> {
+                let value = 3.1415925f32;
+                let regs =
+                    crate::helpers::f32_to_registers(value, Endian::Big, WordOrder::MostSignificantFirst);
+                let payload: Vec<u8> = regs.iter().flat_map(|&r| r.to_be_bytes()).collect();
+                let response = std::iter::once(0x03u8)
+                    .chain(std::iter::once(payload.len() as u8))
+                    .chain(payload.into_iter())
+                    .collect::<Vec<_>>();
+                let mut client = $core::new(MockAduAdapter::new(move |_, _| Ok(response.clone())));
+                let decoded = client.read_holding_registers_f32(0x01, 0)$($await)*?;
+                assert_eq!(decoded, value);
+                Ok(())
+            }
+
+            #[$attr]
+            $($async)* fn read_holding_registers_string_stops_at_nul() -> Result<(), ClientError> {
+                let regs =
+                    crate::helpers::string_to_registers("Hi", Endian::Big, 4).map_err(ClientError::from)?;
+                let payload: Vec<u8> = regs.iter().flat_map(|&r| r.to_be_bytes()).collect();
+                let response = std::iter::once(0x03u8)
+                    .chain(std::iter::once(payload.len() as u8))
+                    .chain(payload.into_iter())
+                    .collect::<Vec<_>>();
+                let mut client = $core::new(MockAduAdapter::new(move |_, _| Ok(response.clone())));
+                let value = client.read_holding_registers_string(0x01, 0, 4)$($await)*?;
+                assert_eq!(value, "Hi");
+                Ok(())
+            }
+
+            #[$attr]
+            $($async)* fn read_input_registers_u32_uses_config() -> Result<(), ClientError> {
+                let mut client = $core::new(MockAduAdapter::new(move |_, _| {
+                    Ok(vec![0x04, 0x04, 0x12, 0x34, 0x56, 0x78])
+                }));
+                let value = client.read_input_registers_u32(0x01, 0)$($await)*?;
+                assert_eq!(value, 0x12345678);
+                Ok(())
+            }
+
+            #[$attr]
+            $($async)* fn write_multiple_registers_u32() -> Result<(), ClientError> {
+                let mock = MockAduAdapter::new(move |_, _| {
+                    let resp = crate::function_codes::write_multiple_registers::WriteMultipleRegistersResponse {
+                        starting_address: 0,
+                        quantity: 2,
+                    };
+                    let mut buf = [0u8; 5];
+                    let n = resp.encode(&mut buf).map_err(ClientError::Encode)?;
+                    Ok(buf[..n].to_vec())
+                });
+                let recorded = mock.share_recorded();
+                let mut client = $core::new(mock);
+                client.write_multiple_registers_u32(0x01, 0, 0xDEADBEEFu32)$($await)*?;
+                let requests = recorded.lock().unwrap();
+                assert_eq!(requests.len(), 1);
+                let req = crate::function_codes::write_multiple_registers::WriteMultipleRegistersRequest::decode(
+                    &requests[0],
+                )
+                .map_err(ClientError::Decode)?;
+                let expected =
+                    crate::helpers::u32_to_registers(0xDEADBEEFu32, Endian::Big, WordOrder::MostSignificantFirst);
+                let expected_bytes: Vec<u8> = expected.iter().flat_map(|&r| r.to_be_bytes()).collect();
+                assert_eq!(req.register_values, expected_bytes);
+                Ok(())
+            }
+
+            #[$attr]
+            $($async)* fn write_multiple_registers_f32() -> Result<(), ClientError> {
+                let value = -1.5f32;
+                let mock = MockAduAdapter::new(move |_, _| {
+                    let resp = crate::function_codes::write_multiple_registers::WriteMultipleRegistersResponse {
+                        starting_address: 0,
+                        quantity: 2,
+                    };
+                    let mut buf = [0u8; 5];
+                    let n = resp.encode(&mut buf).map_err(ClientError::Encode)?;
+                    Ok(buf[..n].to_vec())
+                });
+                let recorded = mock.share_recorded();
+                let mut client = $core::new(mock);
+                client.write_multiple_registers_f32(0x01, 0, value)$($await)*?;
+                let requests = recorded.lock().unwrap();
+                assert_eq!(requests.len(), 1);
+                let req = crate::function_codes::write_multiple_registers::WriteMultipleRegistersRequest::decode(
+                    &requests[0],
+                )
+                .map_err(ClientError::Decode)?;
+                let expected =
+                    crate::helpers::f32_to_registers(value, Endian::Big, WordOrder::MostSignificantFirst);
+                let expected_bytes: Vec<u8> = expected.iter().flat_map(|&r| r.to_be_bytes()).collect();
+                assert_eq!(req.register_values, expected_bytes);
+                Ok(())
+            }
+
+            #[$attr]
+            $($async)* fn write_multiple_registers_string() -> Result<(), ClientError> {
+                let mock = MockAduAdapter::new(move |_, _| {
+                    let resp = crate::function_codes::write_multiple_registers::WriteMultipleRegistersResponse {
+                        starting_address: 0,
+                        quantity: 4,
+                    };
+                    let mut buf = [0u8; 5];
+                    let n = resp.encode(&mut buf).map_err(ClientError::Encode)?;
+                    Ok(buf[..n].to_vec())
+                });
+                let recorded = mock.share_recorded();
+                let mut client = $core::new(mock);
+                client.write_multiple_registers_string(0x01, 0, "Hello", 4)$($await)*?;
+                let requests = recorded.lock().unwrap();
+                assert_eq!(requests.len(), 1);
+                let req = crate::function_codes::write_multiple_registers::WriteMultipleRegistersRequest::decode(
+                    &requests[0],
+                )
+                .map_err(ClientError::Decode)?;
+                let expected =
+                    crate::helpers::string_to_registers("Hello", Endian::Big, 4).map_err(ClientError::from)?;
+                let expected_bytes: Vec<u8> = expected.iter().flat_map(|&r| r.to_be_bytes()).collect();
+                assert_eq!(req.register_values, expected_bytes);
+                Ok(())
+            }
+        };
+    }
+
+    #[cfg(all(test, feature = "sync", feature = "helpers"))]
+    mod sync_typed_helpers_tests {
+        use super::*;
+        typed_helpers_tests!([] test, ClientCore, AduAdapter, []);
+    }
+
+    #[cfg(all(test, feature = "async", feature = "helpers"))]
+    mod async_typed_helpers_tests {
+        use super::*;
+        typed_helpers_tests!([async] tokio::test, AsyncClientCore, AsyncAduAdapter, [.await]);
+    }
 }

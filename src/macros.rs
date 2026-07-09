@@ -17,6 +17,7 @@
 /// impl_adu_adapter! {
 ///     [] [],
 ///     /// Synchronous RTU ADU adapter.
+///     "rtu",
 ///     RtuAduAdapter,
 ///     crate::rtu::RtuAdu,
 ///     no_transaction
@@ -29,6 +30,7 @@
 /// impl_adu_adapter! {
 ///     [async] [.await],
 ///     /// Asynchronous TCP ADU adapter.
+///     "tcp",
 ///     AsyncTcpAduAdapter,
 ///     crate::tcp::TcpAdu,
 ///     transaction
@@ -37,37 +39,37 @@
 #[macro_export]
 macro_rules! impl_adu_adapter {
     // Public arms that select the sync or async transport/ADU traits.
-    ([] [], $(#[$meta:meta])* $adapter:ident, $adu:ty, no_transaction) => {
+    ([] [], $(#[$meta:meta])* $protocol:literal, $adapter:ident, $adu:ty, no_transaction) => {
         impl_adu_adapter! {
             @internal [] [],
-            $(#[$meta])* $adapter, $adu,
+            $(#[$meta])* $protocol, $adapter, $adu,
             $crate::transport::Transport,
             $crate::client::AduAdapter,
             no_transaction
         }
     };
-    ([async] [.await], $(#[$meta:meta])* $adapter:ident, $adu:ty, no_transaction) => {
+    ([async] [.await], $(#[$meta:meta])* $protocol:literal, $adapter:ident, $adu:ty, no_transaction) => {
         impl_adu_adapter! {
             @internal [async] [.await],
-            $(#[$meta])* $adapter, $adu,
+            $(#[$meta])* $protocol, $adapter, $adu,
             $crate::transport::AsyncTransport,
             $crate::client::AsyncAduAdapter,
             no_transaction
         }
     };
-    ([] [], $(#[$meta:meta])* $adapter:ident, $adu:ty, transaction) => {
+    ([] [], $(#[$meta:meta])* $protocol:literal, $adapter:ident, $adu:ty, transaction) => {
         impl_adu_adapter! {
             @internal [] [],
-            $(#[$meta])* $adapter, $adu,
+            $(#[$meta])* $protocol, $adapter, $adu,
             $crate::transport::Transport,
             $crate::client::AduAdapter,
             transaction
         }
     };
-    ([async] [.await], $(#[$meta:meta])* $adapter:ident, $adu:ty, transaction) => {
+    ([async] [.await], $(#[$meta:meta])* $protocol:literal, $adapter:ident, $adu:ty, transaction) => {
         impl_adu_adapter! {
             @internal [async] [.await],
-            $(#[$meta])* $adapter, $adu,
+            $(#[$meta])* $protocol, $adapter, $adu,
             $crate::transport::AsyncTransport,
             $crate::client::AsyncAduAdapter,
             transaction
@@ -75,7 +77,7 @@ macro_rules! impl_adu_adapter {
     };
 
     // Internal arm: protocol without transaction ID (RTU, ASCII).
-    (@internal [$($async:tt)*] [$($await:tt)*], $(#[$meta:meta])* $adapter:ident, $adu:ty, $transport:path, $trait:path, no_transaction) => {
+    (@internal [$($async:tt)*] [$($await:tt)*], $(#[$meta:meta])* $protocol:literal, $adapter:ident, $adu:ty, $transport:path, $trait:path, no_transaction) => {
         $(#[$meta])*
         #[derive(Debug)]
         pub struct $adapter<T: $transport> {
@@ -118,7 +120,7 @@ macro_rules! impl_adu_adapter {
                 let mut tx = [0u8; 512];
                 let n = adu.encode(&mut tx).map_err($crate::client::ClientError::Encode)?;
                 #[cfg(feature = "tracing")]
-                tracing::trace!(unit_id, pdu_len = n, "sending ADU");
+                tracing::trace!(protocol = $protocol, unit_id, pdu_len = n, "sending ADU");
                 #[cfg(feature = "metrics")]
                 if let Some(ref metrics) = self.metrics {
                     metrics.record_request_sent();
@@ -129,14 +131,14 @@ macro_rules! impl_adu_adapter {
                 // do not produce a response, so skip the receive path.
                 if unit_id == 0 {
                     #[cfg(feature = "tracing")]
-                    tracing::trace!(unit_id, "broadcast request, skipping receive");
+                    tracing::trace!(protocol = $protocol, unit_id, "broadcast request, skipping receive");
                     return Ok(Vec::new());
                 }
 
                 let mut rx = [0u8; 512];
                 let m = self.transport.recv(&mut rx, self.config.timeout) $($await)* ?;
                 #[cfg(feature = "tracing")]
-                tracing::trace!(unit_id, response_len = m, "received ADU");
+                tracing::trace!(protocol = $protocol, unit_id, response_len = m, "received ADU");
                 #[cfg(feature = "metrics")]
                 if let Some(ref metrics) = self.metrics {
                     metrics.record_response_received();
@@ -148,7 +150,7 @@ macro_rules! impl_adu_adapter {
                 }
                 let response = <$adu>::decode(&rx[..m]).map_err($crate::client::ClientError::Decode)?;
                 #[cfg(feature = "tracing")]
-                tracing::trace!(unit_id, response_address = response.address, "decoded response ADU");
+                tracing::trace!(protocol = $protocol, unit_id, response_address = response.address, "decoded response ADU");
                 if response.address != unit_id {
                     return Err($crate::client::ClientError::InvalidResponse);
                 }
@@ -161,7 +163,7 @@ macro_rules! impl_adu_adapter {
     };
 
     // Internal arm: protocol with transaction ID (TCP, UDP).
-    (@internal [$($async:tt)*] [$($await:tt)*], $(#[$meta:meta])* $adapter:ident, $adu:ty, $transport:path, $trait:path, transaction) => {
+    (@internal [$($async:tt)*] [$($await:tt)*], $(#[$meta:meta])* $protocol:literal, $adapter:ident, $adu:ty, $transport:path, $trait:path, transaction) => {
         $(#[$meta])*
         #[derive(Debug)]
         pub struct $adapter<T: $transport> {
@@ -209,7 +211,7 @@ macro_rules! impl_adu_adapter {
                 let mut tx = [0u8; 512];
                 let n = adu.encode(&mut tx).map_err($crate::client::ClientError::Encode)?;
                 #[cfg(feature = "tracing")]
-                tracing::trace!(transaction_id, unit_id, pdu_len = n, "sending ADU");
+                tracing::trace!(protocol = $protocol, transaction_id, unit_id, pdu_len = n, "sending ADU");
                 #[cfg(feature = "metrics")]
                 if let Some(ref metrics) = self.metrics {
                     metrics.record_request_sent();
@@ -219,7 +221,7 @@ macro_rules! impl_adu_adapter {
                 let mut rx = [0u8; 512];
                 let m = self.transport.recv(&mut rx, self.config.timeout) $($await)* ?;
                 #[cfg(feature = "tracing")]
-                tracing::trace!(transaction_id, unit_id, response_len = m, "received ADU");
+                tracing::trace!(protocol = $protocol, transaction_id, unit_id, response_len = m, "received ADU");
                 #[cfg(feature = "metrics")]
                 if let Some(ref metrics) = self.metrics {
                     metrics.record_response_received();
@@ -231,7 +233,7 @@ macro_rules! impl_adu_adapter {
                 }
                 let response = <$adu>::decode(&rx[..m]).map_err($crate::client::ClientError::Decode)?;
                 #[cfg(feature = "tracing")]
-                tracing::trace!(transaction_id, unit_id, response_transaction_id = response.transaction_id, "decoded response ADU");
+                tracing::trace!(protocol = $protocol, transaction_id, unit_id, response_transaction_id = response.transaction_id, "decoded response ADU");
                 if response.transaction_id != transaction_id {
                     return Err($crate::client::ClientError::InvalidResponse);
                 }
@@ -247,5 +249,5 @@ macro_rules! impl_adu_adapter {
     };
 }
 
-/// Re-export the macro at the crate root so `crate::impl_adu_adapter!` works.
+// Re-export the macro at the crate root so `crate::impl_adu_adapter!` works.
 pub use impl_adu_adapter;

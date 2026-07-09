@@ -33,6 +33,7 @@ pub type AsciiClientError = crate::client::ClientError;
 impl_adu_adapter! {
     [] [],
     /// Synchronous ASCII ADU adapter.
+    "ascii",
     AsciiAduAdapter,
     crate::ascii::AsciiAdu,
     no_transaction
@@ -292,6 +293,7 @@ mod tests {
 impl_adu_adapter! {
     [async] [.await],
     /// Asynchronous ASCII ADU adapter.
+    "ascii",
     AsyncAsciiAduAdapter,
     crate::ascii::AsciiAdu,
     no_transaction

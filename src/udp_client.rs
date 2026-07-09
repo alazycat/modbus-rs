@@ -33,6 +33,7 @@ pub type UdpClientError = crate::client::ClientError;
 impl_adu_adapter! {
     [] [],
     /// Synchronous UDP ADU adapter.
+    "udp",
     UdpAduAdapter,
     crate::udp::UdpAdu,
     transaction
@@ -197,6 +198,7 @@ mod tests {
 impl_adu_adapter! {
     [async] [.await],
     /// Asynchronous UDP ADU adapter.
+    "udp",
     AsyncUdpAduAdapter,
     crate::udp::UdpAdu,
     transaction

@@ -33,6 +33,7 @@ pub type TcpClientError = crate::client::ClientError;
 impl_adu_adapter! {
     [] [],
     /// Synchronous TCP ADU adapter.
+    "tcp",
     TcpAduAdapter,
     crate::tcp::TcpAdu,
     transaction
@@ -236,6 +237,35 @@ mod tests {
             buf[..data.len()].copy_from_slice(&data);
             Ok(data.len())
         }
+    }
+
+    #[cfg(feature = "tracing")]
+    #[test]
+    fn adapter_trace_includes_protocol() {
+        use crate::test_trace::test_trace::{with_default, TraceRecorder};
+
+        let recorder = TraceRecorder::new();
+        with_default(&recorder, || {
+            let store = MemoryStore::new(16, 0, 0, 0);
+            let mut server = Server::new(store);
+            server
+                .store_mut()
+                .write_coils(0, &[true, false, true, true])
+                .unwrap();
+
+            let mut client = TcpClient::new(LoopbackTransport::new(server));
+            client.read_coils(0x0A, 0, 8).unwrap();
+        });
+
+        let events = recorder.events();
+        assert!(
+            events.iter().any(|e| e
+                .fields
+                .iter()
+                .any(|(k, v)| k == "protocol" && v.trim_matches('"') == "tcp")),
+            "adapter trace should include protocol=tcp: {:?}",
+            events
+        );
     }
 
     #[test]
@@ -588,6 +618,7 @@ mod tls_tests {
 impl_adu_adapter! {
     [async] [.await],
     /// Asynchronous TCP ADU adapter.
+    "tcp",
     AsyncTcpAduAdapter,
     crate::tcp::TcpAdu,
     transaction

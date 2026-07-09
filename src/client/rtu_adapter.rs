@@ -13,6 +13,7 @@ use crate::macros::impl_adu_adapter;
 impl_adu_adapter! {
     [] [],
     /// Synchronous RTU ADU adapter.
+    "rtu",
     RtuAduAdapter,
     crate::rtu::RtuAdu,
     no_transaction
@@ -22,6 +23,7 @@ impl_adu_adapter! {
 impl_adu_adapter! {
     [async] [.await],
     /// Asynchronous RTU ADU adapter.
+    "rtu",
     AsyncRtuAduAdapter,
     crate::rtu::RtuAdu,
     no_transaction

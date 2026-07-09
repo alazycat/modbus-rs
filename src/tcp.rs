@@ -6,6 +6,9 @@ use alloc::vec::Vec;
 
 use crate::error::{DecodeError, EncodeError};
 
+#[cfg(any(feature = "sync", feature = "async"))]
+use crate::transport::TransportError;
+
 /// The MODBUS protocol identifier used in the MBAP header (always 0 for MODBUS).
 pub const MODBUS_PROTOCOL_ID: u16 = 0x0000;
 
@@ -80,6 +83,27 @@ impl TcpAdu {
     }
 }
 
+/// Compute the total TCP ADU frame length from a 7-byte MBAP header.
+///
+/// Validates that the protocol identifier is `MODBUS_PROTOCOL_ID` and that the
+/// length field is non-zero. Returns the full frame length including the MBAP
+/// header on success.
+#[cfg(any(feature = "sync", feature = "async"))]
+pub fn tcp_frame_len(header: &[u8; TcpAdu::HEADER_SIZE]) -> Result<usize, TransportError> {
+    let protocol_id = u16::from_be_bytes([header[2], header[3]]);
+    if protocol_id != MODBUS_PROTOCOL_ID {
+        return Err(TransportError::Disconnected);
+    }
+
+    let length = u16::from_be_bytes([header[4], header[5]]) as usize;
+    if length == 0 {
+        return Err(TransportError::Disconnected);
+    }
+
+    let pdu_len = length - 1;
+    Ok(TcpAdu::HEADER_SIZE + pdu_len)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,6 +170,33 @@ mod tests {
         assert!(matches!(
             adu.encode(&mut buf),
             Err(EncodeError::BufferTooSmall)
+        ));
+    }
+
+    #[test]
+    #[cfg(any(feature = "sync", feature = "async"))]
+    fn tcp_frame_len_computes_full_frame() {
+        let header = [0x00, 0x01, 0x00, 0x00, 0x00, 0x06, 0x0A];
+        assert_eq!(tcp_frame_len(&header).unwrap(), 12);
+    }
+
+    #[test]
+    #[cfg(any(feature = "sync", feature = "async"))]
+    fn tcp_frame_len_rejects_non_zero_protocol_id() {
+        let header = [0x00, 0x01, 0x00, 0x01, 0x00, 0x06, 0x0A];
+        assert!(matches!(
+            tcp_frame_len(&header),
+            Err(TransportError::Disconnected)
+        ));
+    }
+
+    #[test]
+    #[cfg(any(feature = "sync", feature = "async"))]
+    fn tcp_frame_len_rejects_zero_length() {
+        let header = [0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x0A];
+        assert!(matches!(
+            tcp_frame_len(&header),
+            Err(TransportError::Disconnected)
         ));
     }
 }

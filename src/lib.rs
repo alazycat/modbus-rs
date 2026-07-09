@@ -8,6 +8,9 @@ pub mod function;
 pub mod function_codes;
 pub mod macros;
 
+#[cfg(feature = "config")]
+pub mod config;
+
 #[cfg(feature = "helpers")]
 pub mod helpers;
 

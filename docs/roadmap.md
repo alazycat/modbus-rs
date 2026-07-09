@@ -383,9 +383,9 @@ started from JSON/TOML/YAML files when the `config` feature is enabled.
 ---
 
 ### Checkpoint: Observability and CLI
-- [ ] Tasks 3.1–3.5 merged.
-- [ ] `cargo test --all-features` passes.
-- [ ] CLI help output reviewed.
+- [x] Tasks 3.1–3.5 merged.
+- [x] `cargo test --all-features` passes.
+- [x] CLI help output reviewed.
 
 ---
 

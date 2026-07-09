@@ -397,11 +397,11 @@ started from JSON/TOML/YAML files when the `config` feature is enabled.
 and clearly mark the remaining gaps (idle timeout, hooks, CLI polish).
 
 **Acceptance criteria:**
-- [ ] All "done" items are marked as implemented.
-- [ ] Remaining gaps are accurate and limited to idle timeout, hooks, and CLI.
+- [x] All "done" items are marked as implemented.
+- [x] Remaining gaps are accurate and limited to ecosystem polish.
 
 **Verification:**
-- [ ] Manual review.
+- [x] Manual review.
 
 **Dependencies:** Phases 1–3
 
@@ -424,11 +424,11 @@ compiling example:
 - `examples/config_client.rs` / `examples/config_server.rs`
 
 **Acceptance criteria:**
-- [ ] Each example compiles with the correct feature set.
-- [ ] Examples are listed in `Cargo.toml` where required.
+- [x] Each example compiles with the correct feature set.
+- [x] Examples are listed in `Cargo.toml` where required.
 
 **Verification:**
-- [ ] `cargo build --example <name> --features ...` succeeds for each.
+- [x] `cargo build --example <name> --features ...` succeeds for each.
 
 **Dependencies:** Phases 1–3
 
@@ -446,11 +446,11 @@ compiling example:
 and example commands. Add a CHANGELOG entry for the next release.
 
 **Acceptance criteria:**
-- [ ] README transport table matches current code.
-- [ ] CHANGELOG has an `Unreleased` or `0.2.0` section.
+- [x] README transport table matches current code.
+- [x] CHANGELOG has an `Unreleased` or `0.2.0` section.
 
 **Verification:**
-- [ ] Manual review.
+- [x] Manual review.
 
 **Dependencies:** Task 4.2
 
@@ -468,11 +468,11 @@ and example commands. Add a CHANGELOG entry for the next release.
 documentation, or dependency warnings.
 
 **Acceptance criteria:**
-- [ ] `cargo publish --dry-run --all-features` succeeds.
-- [ ] No new warnings.
+- [x] `cargo publish --dry-run --all-features` succeeds.
+- [x] No new warnings.
 
 **Verification:**
-- [ ] Command output clean.
+- [x] Command output clean.
 
 **Dependencies:** Tasks 4.1–4.3
 
@@ -485,10 +485,10 @@ documentation, or dependency warnings.
 ---
 
 ### Checkpoint: Release ready
-- [ ] Tasks 4.1–4.4 merged.
-- [ ] `cargo test --all-features` passes.
-- [ ] `cargo publish --dry-run` succeeds.
-- [ ] README, CHANGELOG, and comparison doc are current.
+- [x] Tasks 4.1–4.4 merged.
+- [x] `cargo test --all-features` passes.
+- [x] `cargo publish --dry-run` succeeds.
+- [x] README, CHANGELOG, and comparison doc are current.
 
 ---
 

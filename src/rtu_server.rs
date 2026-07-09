@@ -101,7 +101,7 @@ impl<D: DataStore> RtuServer<D> {
         }
 
         let mut pdu_response = [0u8; 512];
-        let n = self.server.dispatch(&request.pdu, &mut pdu_response)?;
+        let n = self.server.dispatch_with_hook(server_address, &request.pdu, &mut pdu_response)?;
 
         if request.is_broadcast() {
             return Ok(None);

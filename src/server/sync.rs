@@ -106,6 +106,11 @@ impl<D: DataStore> Server<D> {
         self
     }
 
+    /// Replace the request hook on this server.
+    pub fn set_hook(&mut self, hook: Box<dyn RequestHook>) {
+        self.hook = Some(hook);
+    }
+
     /// Dispatch a request PDU with hook interception and write the response PDU
     /// into `response`.
     ///

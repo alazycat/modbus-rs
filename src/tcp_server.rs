@@ -117,7 +117,7 @@ impl<D: DataStore> TcpServer<D> {
         }
 
         let mut pdu_response = [0u8; 512];
-        let n = self.server.dispatch(&request.pdu, &mut pdu_response)?;
+        let n = self.server.dispatch_with_hook(unit_id, &request.pdu, &mut pdu_response)?;
 
         let response = TcpAdu::new(
             request.transaction_id,
@@ -290,6 +290,47 @@ mod tests {
     }
 
     #[test]
+    fn serve_one_applies_rejecting_hook() {
+        use crate::exception::{ExceptionCode, ExceptionResponse};
+        use crate::server::RequestHook;
+
+        #[derive(Debug)]
+        struct RejectAll;
+
+        impl RequestHook for RejectAll {
+            fn before_request(
+                &mut self,
+                _unit_id: u8,
+                request_pdu: &[u8],
+            ) -> Result<(), ExceptionResponse> {
+                Err(ExceptionResponse::new(
+                    request_pdu[0],
+                    ExceptionCode::IllegalFunction,
+                ))
+            }
+
+            fn after_response(
+                &mut self,
+                _unit_id: u8,
+                _request_pdu: &[u8],
+                _response_pdu: &[u8],
+            ) {
+            }
+        }
+
+        let mut server = TcpServer::new(MemoryStore::new(0, 0, 0, 0));
+        server.server_mut().set_hook(Box::new(RejectAll));
+
+        let request = make_read_coils_adu(0x0A, 0x0001, 0, 8);
+        let mut stream = Duplex::new(request);
+
+        let n = server.serve_one(&mut stream, 0x0A).unwrap().unwrap();
+        assert_eq!(n, TcpAdu::HEADER_SIZE + 2);
+        let response = TcpAdu::decode(&stream.write_buf).unwrap();
+        assert_eq!(response.pdu, vec![0x81, 0x01]);
+    }
+
+    #[test]
     fn serve_one_ignores_non_matching_unit_id() {
         let store = MemoryStore::new(16, 0, 0, 0);
         let mut server = TcpServer::new(store);
@@ -406,7 +447,7 @@ impl<D: DataStore> AsyncTcpServer<D> {
         }
 
         let mut pdu_response = [0u8; 512];
-        let n = self.server.dispatch(&request.pdu, &mut pdu_response)?;
+        let n = self.server.dispatch_with_hook(unit_id, &request.pdu, &mut pdu_response)?;
 
         let response = TcpAdu::new(
             request.transaction_id,

@@ -116,7 +116,7 @@ impl<D: DataStore> UdpServer<D> {
         }
 
         let mut pdu_response = [0u8; 512];
-        let n = self.server.dispatch(&request.pdu, &mut pdu_response)?;
+        let n = self.server.dispatch_with_hook(unit_id, &request.pdu, &mut pdu_response)?;
 
         let response = UdpAdu::new(
             request.transaction_id,
@@ -364,7 +364,7 @@ impl<D: DataStore> AsyncUdpServer<D> {
         }
 
         let mut pdu_response = [0u8; 512];
-        let n = self.server.dispatch(&request.pdu, &mut pdu_response)?;
+        let n = self.server.dispatch_with_hook(unit_id, &request.pdu, &mut pdu_response)?;
 
         let response = UdpAdu::new(
             request.transaction_id,

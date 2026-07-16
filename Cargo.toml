@@ -28,6 +28,7 @@ tracing = ["std", "dep:tracing"]
 metrics = ["std"]
 
 [dependencies]
+tlv-rs = { path = "../tlv-rs" }
 tokio = { version = "1", features = ["net", "rt", "rt-multi-thread", "io-util", "time", "macros"], optional = true }
 tokio-rustls = { version = "0.26", optional = true, features = ["ring"] }
 rustls = { version = "0.23", optional = true, features = ["ring"] }
